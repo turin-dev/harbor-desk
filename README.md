@@ -1,5 +1,11 @@
 # Harbor Desk
 
+[![CI](https://github.com/turin-dev/harbor-desk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/turin-dev/harbor-desk/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/harbor-desk?logo=npm)](https://www.npmjs.com/package/harbor-desk)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Release](https://img.shields.io/github/v/release/turin-dev/harbor-desk?include_prereleases&sort=semver)](https://github.com/turin-dev/harbor-desk/releases)
+
 Harbor Desk is an open-source, remote-first container operations desktop client.
 It provides a Docker Desktop-shaped workflow while keeping every Docker Engine
 connection on the server side. The Windows client talks to a Fastify gateway
@@ -13,6 +19,18 @@ local Docker socket.
 
 Harbor Desk uses a familiar container-management workflow, but it does not
 include Docker Desktop source code, assets, or a client-side Engine integration.
+
+## Contents
+
+- [Current implementation](#current-implementation)
+- [npx bootstrap](#npx-bootstrap)
+- [Architecture and trust boundary](#architecture-and-trust-boundary)
+- [Getting started](#getting-started)
+- [Server-local Engine overlay](#server-local-engine-overlay)
+- [Configuration and deployment safety](#configuration-and-deployment-safety)
+- [Project layout](#project-layout)
+- [Contributing and security](#contributing-and-security)
+- [License](#license)
 
 ## Current implementation
 
@@ -227,6 +245,17 @@ Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a change and
 guide includes validation commands and the boundary that must remain intact:
 the renderer must never acquire direct Docker Engine access.
 
+Report a vulnerability through
+[private security advisories](https://github.com/turin-dev/harbor-desk/security/advisories/new),
+not a public issue. Release-by-release changes are recorded in
+[CHANGELOG.md](./CHANGELOG.md), and expected participant behavior is described in
+[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+Apache-2.0. See [LICENSE](./LICENSE) for the license text and [NOTICE](./NOTICE)
+for attribution.
+
+Harbor Desk is an independent project. It is not affiliated with, endorsed by,
+or derived from Docker, Inc. "Docker" is a trademark of Docker, Inc., used here
+only to describe Docker Engine API compatibility.

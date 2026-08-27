@@ -5,18 +5,25 @@
 Do not post an unpatched vulnerability, exploit details, credentials, or
 deployment-specific host information in a public issue.
 
-Once this repository is published, use its private security-advisory reporting
-feature. If that feature has not yet been configured, open a minimal public
-issue requesting a private reporting channel and include no technical details.
-Maintainers should acknowledge a report, establish a private channel, assess
-impact, and coordinate disclosure before a fix is published.
+Use the repository's private reporting form at
+<https://github.com/turin-dev/harbor-desk/security/advisories/new>. Include the
+affected version or commit, the trust boundary involved, reproduction steps, and
+the observed impact. Maintainers aim to acknowledge a report within 7 days,
+share an assessment within 30 days, and coordinate disclosure before publishing
+a fix. If the private form is unavailable, open a minimal public issue that asks
+for a private channel and contains no technical detail.
 
 ## Supported scope
 
-The current 0.1.x vertical slice is the supported source line. It is not a
-production-ready hosted service or a promise that every visible screen has an
-implemented backend. Unsupported capabilities intentionally surface an
-unavailable state.
+The latest 0.x preview on `main` is the supported source line; older preview
+tags do not receive backported fixes. It is not a production-ready hosted
+service or a promise that every visible screen has an implemented backend.
+Unsupported capabilities intentionally surface an unavailable state.
+
+| Version                      | Supported |
+| ---------------------------- | --------- |
+| Latest 0.x preview on `main` | Yes       |
+| Earlier 0.x preview tags     | No        |
 
 ## Security model
 

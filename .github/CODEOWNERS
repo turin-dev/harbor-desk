@@ -1,0 +1,17 @@
+# Default reviewer for every change.
+*                       @turin-dev
+
+# Security-sensitive boundaries: gateway policy, connectors, contracts,
+# packaging/bootstrap entry points, infrastructure, and published policy files.
+/apps/gateway/          @turin-dev
+/packages/connectors/   @turin-dev
+/packages/contracts/    @turin-dev
+/apps/desktop/src/main/ @turin-dev
+/apps/desktop/src/preload.cts @turin-dev
+/bin/                   @turin-dev
+/scripts/               @turin-dev
+/infra/                 @turin-dev
+/.github/               @turin-dev
+/SECURITY.md            @turin-dev
+/LICENSE                @turin-dev
+/NOTICE                 @turin-dev

@@ -1,0 +1,61 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    labels:
+      - dependencies
+    groups:
+      dev-tooling:
+        patterns:
+          - "@types/*"
+          - typescript
+          - prettier
+          - concurrently
+          - tsx
+          - vite
+          - "@vitejs/*"
+        update-types:
+          - minor
+          - patch
+      runtime-minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - electron
+          - electron-builder
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Electron major upgrades change the security and packaging surface of the
+      # desktop shell, so they are reviewed manually instead of automatically.
+      - dependency-name: electron
+        update-types:
+          - version-update:semver-major
+      - dependency-name: electron-builder
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci
+
+  - package-ecosystem: docker
+    directory: /infra/compose
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - infra

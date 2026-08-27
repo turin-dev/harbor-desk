@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/turin-dev/harbor-desk/security/advisories/new
+    about: Use private security advisories. Never post exploit details, credentials, certificates, or private host information in a public issue.
+  - name: Read the security policy
+    url: https://github.com/turin-dev/harbor-desk/blob/main/SECURITY.md
+    about: Supported scope, trust boundary, Docker socket warning, and deployment prerequisites.
+  - name: Read the contributor guide
+    url: https://github.com/turin-dev/harbor-desk/blob/main/CONTRIBUTING.md
+    about: Local setup, validation commands, and the architecture rules a change must preserve.

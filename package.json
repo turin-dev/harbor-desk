@@ -26,8 +26,10 @@
   "files": [
     "bin",
     "server-payload",
-    "README.md",
+    "CHANGELOG.md",
     "LICENSE",
+    "NOTICE",
+    "README.md",
     "SECURITY.md"
   ],
   "publishConfig": {
