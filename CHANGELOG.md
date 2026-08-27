@@ -19,6 +19,9 @@ still change between minor versions.
 - Issue-template chooser that routes vulnerability reports to private security
   advisories instead of public issues.
 - Pull-request dependency review in CI for high-severity dependency changes.
+- `SECURITY.md` section recording the one known unpatched advisory
+  (`extract-zip` reached through the Electron build dependency) with its
+  reachability assessment.
 
 ### Changed
 
@@ -28,6 +31,17 @@ still change between minor versions.
 - `LICENSE` restored to the unmodified Apache-2.0 text so license detection and
   redistribution obligations are unambiguous; the project copyright line now
   lives in `NOTICE`.
+- `SECURITY.md` now points at the private security-advisory form, states
+  acknowledgement and assessment targets, and lists supported versions.
+
+### Security
+
+- Enabled Dependabot alerts and security updates, secret scanning with push
+  protection, private vulnerability reporting, and CodeQL default setup.
+- Upgraded Electron to 39.8.10, which cleared 6 high-severity and 20 lower
+  severity advisories.
+- Protected `main` with a ruleset requiring both CI matrix checks and blocking
+  branch deletion and force pushes.
 
 ## [0.2.0] - 2026-08-27
 

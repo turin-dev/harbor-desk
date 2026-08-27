@@ -61,3 +61,18 @@ Vault/KMS adapter, production worker processing, authentication/authorization
 acceptance checks, secret rotation, monitoring, backups, signed packages, and
 an independent security review. The absence of a public advisory does not make
 an unreviewed deployment safe.
+
+## Known unpatched advisories
+
+Dependabot, secret scanning with push protection, and CodeQL default setup are
+enabled on this repository. One advisory currently has no upstream fix:
+
+- **extract-zip 2.0.1 — unvalidated symlink path traversal (high).** It reaches
+  the tree only as a transitive dependency of the `electron` development
+  dependency, which uses it to unpack the prebuilt Electron binary at install
+  time. Version 2.0.1 is the newest release, so no patched version is available.
+  It is not part of the published npm package, is not loaded by the gateway or
+  the renderer at runtime, and is not reachable from remote input. Treat it as a
+  build-host supply-chain risk: build from a trusted registry mirror and do not
+  run installs on untrusted archives. This entry will be removed once an
+  upstream fix or an Electron release without the dependency is available.
