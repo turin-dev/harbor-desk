@@ -113,7 +113,7 @@ jobs:
 
       - name: Package desktop client
         # The artifacts are unsigned unless the build environment supplies signing
-        # material. Publishing is left to an explicit maintainer step.
+        # material. The publish job attaches them as a clearly marked preview.
         # Use the root script so pnpm builds the workspace packages the renderer
         # imports before electron-builder runs.
         env:
