@@ -2,6 +2,10 @@
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import {
+  runServerInstaller,
+  serverInstallerUsage,
+} from "./server-installer.mjs";
 
 const sourceUrl = "https://github.com/turin-dev/harbor-desk";
 const releasesUrl = `${sourceUrl}/releases`;
@@ -16,9 +20,11 @@ function usage() {
     "  npx --yes harbor-desk --open-release",
     "  npx --yes harbor-desk --open-source",
     "  npx --yes harbor-desk --version",
+    "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
     "",
     "This bootstrap command does not install or launch the Electron desktop app.",
     "It does not access Docker Desktop, a local Docker socket, Docker CLI, or a Docker daemon.",
+    "The explicit install-server command installs a loopback-only preview gateway on a Linux Docker host.",
     "",
     `Source: ${sourceUrl}`,
     `Releases: ${releasesUrl}`,
@@ -51,7 +57,15 @@ function openUrl(url) {
 
 const [argument, ...extraArguments] = process.argv.slice(2);
 
-if (extraArguments.length > 0) {
+if (argument === "install-server") {
+  try {
+    await runServerInstaller(extraArguments);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n\n${serverInstallerUsage()}\n`);
+    process.exitCode = 1;
+  }
+} else if (extraArguments.length > 0) {
   process.stderr.write(
     `Unexpected arguments: ${process.argv.slice(2).join(" ")}\n\n`,
   );

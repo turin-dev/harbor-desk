@@ -46,19 +46,53 @@ than fixture data or fake success.
 
 ## npx bootstrap
 
-Use the small npm bootstrap command to find the source, preview releases, and
-the private server-side installation path:
+Use the npm command to find the source, preview releases, and the private
+server-side installation path:
 
 ```powershell
 npx --yes harbor-desk
 npx --yes harbor-desk --open-release
 ```
 
-This command does **not** install or launch the Electron desktop application,
-download an unsigned Windows installer, access Docker Desktop, contact a local
-Docker socket, or start a Docker daemon. It is intentionally a safe entry point
-to the open-source preview while the desktop installer remains unsigned and the
-production control-plane dependencies are still incomplete.
+The default command does **not** install or launch the Electron desktop
+application, download an unsigned Windows installer, access Docker Desktop,
+contact a local Docker socket, or start a Docker daemon. It is intentionally a
+safe entry point into the open-source preview while the desktop installer
+remains unsigned and the production control-plane dependencies are still
+incomplete.
+
+### Install a server-side preview gateway
+
+On a controlled Linux Docker host, the explicit `install-server` command copies
+the gateway source payload from the published npm package, creates a unique
+server secret, builds the gateway, and starts it behind a loopback-only port.
+The command requires an empty target directory and will refuse to overwrite an
+existing install or use an occupied port.
+
+```bash
+npx --yes harbor-desk install-server \
+  --directory /srv/harbor-desk-preview \
+  --port 4311 \
+  --engine-name "server local Docker Engine" \
+  --allow-local-engine-socket
+```
+
+Use `--dry-run` to validate Docker Compose access, the Docker socket, target
+directory, and loopback port without creating files or containers:
+
+```bash
+npx --yes harbor-desk install-server \
+  --directory /srv/harbor-desk-preview \
+  --port 4311 \
+  --allow-local-engine-socket \
+  --dry-run
+```
+
+`install-server` is a **development preview** installer, not a production
+control-plane installer. It uses the documented server-local Engine overlay;
+the explicit socket acknowledgement is required because Docker socket access
+is highly privileged even with a read-only bind mount. The generated
+`.harbor-desk.env` is created with owner-only permissions and is never printed.
 
 ## Architecture and trust boundary
 

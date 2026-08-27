@@ -1,6 +1,6 @@
 {
   "name": "harbor-desk",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "description": "A remote Docker operations desktop client with a server-side engine gateway.",
   "license": "Apache-2.0",
@@ -25,6 +25,7 @@
   },
   "files": [
     "bin",
+    "server-payload",
     "README.md",
     "LICENSE",
     "SECURITY.md"
@@ -42,6 +43,8 @@
     "dev": "concurrently -k \"pnpm --filter @harbor/gateway dev\" \"pnpm --filter @harbor/desktop dev\"",
     "soak:8h": "node scripts/soak-runtime.mjs",
     "npx:smoke": "node bin/harbor-desk.mjs --help",
+    "prepack": "node scripts/prepare-npm-server-payload.mjs",
+    "postpack": "node scripts/prepare-npm-server-payload.mjs --clean",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --test test/npx-bootstrap.test.mjs && pnpm -r --if-present --sort run test"
