@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "description": "Remote-first container operations desktop client",
   "author": "Harbor Desk contributors",
+  "homepage": "https://github.com/turin-dev/harbor-desk",
   "type": "module",
   "main": "dist-electron/main/main.js",
   "scripts": {
@@ -72,6 +73,8 @@
       "artifactName": "Harbor-Desk-${version}-Setup.${ext}"
     },
     "linux": {
+      "executableName": "harbor-desk",
+      "maintainer": "Harbor Desk contributors <noreply@github.com>",
       "target": [
         {
           "target": "AppImage",

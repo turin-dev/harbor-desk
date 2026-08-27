@@ -175,3 +175,94 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: harbor-desk-*.tgz
+
+  publish:
+    name: Publish GitHub release
+    needs: [verify, client, server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Download client artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: client-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Download server package
+        uses: actions/download-artifact@v4
+        with:
+          name: server-npm-package
+          path: release-assets
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release-assets -maxdepth 1 -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > release-assets/SHA256SUMS
+
+      - name: Write release notes
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '## Harbor Desk %s preview\n\n' "$RELEASE_TAG" > release-notes.md
+          cat >> release-notes.md <<'EOF'
+
+          This preview contains the remote-first desktop client and the server-side
+          Docker gateway installer.
+
+          ### Downloads
+
+          - Linux client: x86_64 AppImage and Debian package
+          - Windows client: x64 NSIS installer
+          - macOS client: x64 and arm64 DMG/ZIP packages
+          - Server: npm package for `npx --yes harbor-desk install-server`
+          - `SHA256SUMS`: SHA-256 checksums for every release asset
+
+          The server installer supports Linux, Windows, and macOS hosts running
+          Docker or Docker Desktop. It is a development preview and requires an
+          explicit `--allow-local-engine-socket` acknowledgement when the local
+          Docker Engine socket is mounted.
+
+          Desktop binaries are currently unsigned. Verify `SHA256SUMS` before
+          installation and use the source build for environments that require
+          signed artifacts.
+          EOF
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Harbor Desk $RELEASE_TAG" \
+              --notes-file release-notes.md \
+              --prerelease
+            gh release upload "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Harbor Desk $RELEASE_TAG" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --verify-tag
+          fi

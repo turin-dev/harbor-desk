@@ -17,7 +17,8 @@ still change between minor versions.
   Linux, NSIS on Windows, and dmg and zip (x64 and arm64) on macOS.
 - A `Release` workflow that verifies the tagged commit, builds the client on
   `ubuntu-latest`, `windows-latest`, and `macos-latest`, builds the gateway
-  container image, and packs the npm server installer.
+  container image, packs the npm server installer, and publishes the client
+  and server artifacts with SHA-256 checksums to a GitHub prerelease.
 - A "Supported platforms" README section covering both the server and client
   matrix and the unsigned-artifact warning.
 
@@ -40,6 +41,8 @@ still change between minor versions.
 entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
   The root `package:linux`, `package:mac`, and `package:win` scripts now build
   workspace dependencies first, and the release workflow calls those root scripts.
+- Linux package metadata now includes the repository homepage and maintainer,
+  allowing the `.deb` artifact to be generated on a clean release runner.
 
 ### Repository and CI
 
