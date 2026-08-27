@@ -87,9 +87,12 @@ jobs:
           - os: windows-latest
             script: package:win
             artifact: client-windows
+          - os: macos-15-intel
+            script: package:mac
+            artifact: client-macos-x64
           - os: macos-latest
             script: package:mac
-            artifact: client-macos
+            artifact: client-macos-arm64
     steps:
       - name: Check out source
         uses: actions/checkout@v7

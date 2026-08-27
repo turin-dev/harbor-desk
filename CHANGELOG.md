@@ -43,6 +43,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
   workspace dependencies first, and the release workflow calls those root scripts.
 - Linux package metadata now includes the repository homepage and maintainer,
   allowing the `.deb` artifact to be generated on a clean release runner.
+- macOS packaging now runs on both the native Intel and arm64 GitHub runners,
+  so the release cannot silently omit one of the declared client architectures.
 
 ### Repository and CI
 

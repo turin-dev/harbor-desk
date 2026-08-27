@@ -298,4 +298,10 @@ test("packaging scripts build the workspace packages the renderer imports", asyn
     workflow,
     /pnpm --filter @harbor\/desktop \$\{\{ matrix\.script \}\}/,
   );
+
+  // macos-latest is arm64 in the current public runner set. Build macOS once on
+  // each native host architecture so the release contains both x64 and arm64
+  // installers instead of silently shipping only the runner's architecture.
+  assert.match(workflow, /os: macos-15-intel[\s\S]*artifact: client-macos-x64/);
+  assert.match(workflow, /os: macos-latest[\s\S]*artifact: client-macos-arm64/);
 });
