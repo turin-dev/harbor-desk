@@ -53,6 +53,19 @@ Never expose the Docker socket, do not publish the preview gateway directly to
 the Internet, and do not use this arrangement as production security
 isolation.
 
+This applies identically on Linux, Windows, and macOS. On Docker Desktop the
+socket bind source is resolved inside the Docker Linux virtual machine, which
+does not reduce its privilege: a container holding that socket can still control
+the Engine and therefore other containers on that host.
+
+## Release artifact signing
+
+Release workflow artifacts are unsigned unless the build environment supplies
+signing material. An unsigned installer cannot prove origin or integrity, so
+macOS Gatekeeper and Windows SmartScreen will warn. Verify the checksum against
+the release page, and do not distribute an unsigned artifact as a trusted
+production build.
+
 ## Deployment prerequisites not yet complete
 
 Before treating a deployment as production-ready, complete and operate durable

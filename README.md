@@ -24,6 +24,7 @@ include Docker Desktop source code, assets, or a client-side Engine integration.
 
 - [Current implementation](#current-implementation)
 - [npx bootstrap](#npx-bootstrap)
+- [Supported platforms](#supported-platforms)
 - [Architecture and trust boundary](#architecture-and-trust-boundary)
 - [Getting started](#getting-started)
 - [Server-local Engine overlay](#server-local-engine-overlay)
@@ -81,11 +82,11 @@ incomplete.
 
 ### Install a server-side preview gateway
 
-On a controlled Linux Docker host, the explicit `install-server` command copies
-the gateway source payload from the published npm package, creates a unique
-server secret, builds the gateway, and starts it behind a loopback-only port.
-The command requires an empty target directory and will refuse to overwrite an
-existing install or use an occupied port.
+On a controlled Linux, Windows, or macOS Docker host, the explicit
+`install-server` command copies the gateway source payload from the published
+npm package, creates a unique server secret, builds the gateway, and starts it
+behind a loopback-only port. The command requires an empty target directory and
+will refuse to overwrite an existing install or use an occupied port.
 
 ```bash
 npx --yes harbor-desk install-server \
@@ -111,6 +112,32 @@ control-plane installer. It uses the documented server-local Engine overlay;
 the explicit socket acknowledgement is required because Docker socket access
 is highly privileged even with a read-only bind mount. The generated
 `.harbor-desk.env` is created with owner-only permissions and is never printed.
+
+On a Windows or macOS host running Docker Desktop, pass a native destination
+path instead. The Engine socket stays `/var/run/docker.sock` on every platform,
+because Docker Desktop resolves that bind source inside its own Linux virtual
+machine rather than on the host filesystem.
+
+```powershell
+npx --yes harbor-desk install-server --directory C:\harbor-desk-preview --port 4311 --allow-local-engine-socket
+```
+
+## Supported platforms
+
+| Component                         | Linux                           | Windows        | macOS                    |
+| --------------------------------- | ------------------------------- | -------------- | ------------------------ |
+| Server gateway (`install-server`) | Docker Engine or Docker Desktop | Docker Desktop | Docker Desktop           |
+| Desktop client                    | AppImage, deb                   | NSIS installer | dmg, zip (x64 and arm64) |
+
+The server gateway runs as a container on any host with Docker Compose, so the
+same command works against a native Linux Engine and against Docker Desktop. The
+client is a control-plane application and never requires a local Docker Engine on
+any platform.
+
+Release artifacts are built by the `Release` workflow on `ubuntu-latest`,
+`windows-latest`, and `macos-latest`. They are **unsigned** unless the build
+environment supplies signing material, so macOS Gatekeeper and Windows SmartScreen
+will warn. Do not treat an unsigned artifact as a trusted production release.
 
 ## Architecture and trust boundary
 
@@ -173,12 +200,18 @@ processes must be checked in the same run. The default check interval is
 30 seconds and can be shortened only for a local smoke test with
 SOAK_INTERVAL_MS.
 
-To create a Windows unpacked build or NSIS installer after configuring the
-gateway URL, run:
+To create a desktop client build after configuring the gateway URL, run the
+command for the platform you are building on. electron-builder builds each
+target on its own operating system, so run these on the matching host:
 
 ```powershell
 pnpm --filter @harbor/desktop package:dir
 pnpm --filter @harbor/desktop package:win
+```
+
+```bash
+pnpm --filter @harbor/desktop package:linux
+pnpm --filter @harbor/desktop package:mac
 ```
 
 The installer is unsigned unless the build environment supplies a signing

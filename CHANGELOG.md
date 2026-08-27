@@ -5,9 +5,38 @@ All notable changes to this project are documented here. This project follows
 previews: the public API, gateway contracts, and packaging entry points can
 still change between minor versions.
 
-## Unreleased
+## [0.3.0] - 2026-08-27
 
 ### Added
+
+- `install-server` now supports a Linux, Windows, or macOS Docker host instead
+  of Linux only. Verified end to end on Windows with Docker Desktop: the gateway
+  container started, reported `engine: ok`, and listed the real Docker Engine
+  29.6.2 (API 1.55) as an online host.
+- Desktop client packaging targets for all three platforms: AppImage and deb on
+  Linux, NSIS on Windows, and dmg and zip (x64 and arm64) on macOS.
+- A `Release` workflow that verifies the tagged commit, builds the client on
+  `ubuntu-latest`, `windows-latest`, and `macos-latest`, builds the gateway
+  container image, and packs the npm server installer.
+- A "Supported platforms" README section covering both the server and client
+  matrix and the unsigned-artifact warning.
+
+### Fixed
+
+- The installer no longer runs the Engine socket through host path resolution.
+  On Windows this rewrote `/var/run/docker.sock` into `C:\var\run\docker.sock`
+  and produced an invalid Compose bind source. The socket is resolved by the
+  Docker Engine, so it stays a POSIX path on every host.
+- The gateway now dials the socket at its pinned in-container path rather than
+  the host-side source, so a non-default `--engine-socket` cannot desynchronize
+  `DEV_ENGINE_HOST` from the actual mount target.
+- `sudo` is no longer attempted on Windows, which has no `sudo`; the installer
+  reports the real Docker Compose availability problem instead.
+- The desktop manifest version was `0.1.0` while the release was `0.2.0`, so a
+  `v0.2.0` build produced `Harbor-Desk-0.1.0-Setup.exe`. Both manifests are now
+  `0.3.0` and a test plus a release-workflow tag check keep them aligned.
+
+### Repository and CI
 
 - `NOTICE` file with the Apache-2.0 attribution notice and an explicit
   statement that the project is independent of Docker, Inc.
@@ -72,6 +101,7 @@ still change between minor versions.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
+[0.3.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.1.1
 [0.1.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.1.0

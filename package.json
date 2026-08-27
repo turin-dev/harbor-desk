@@ -1,6 +1,6 @@
 {
   "name": "harbor-desk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "A remote Docker operations desktop client with a server-side engine gateway.",
   "license": "Apache-2.0",

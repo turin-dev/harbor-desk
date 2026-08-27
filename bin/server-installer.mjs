@@ -18,6 +18,25 @@ const defaultEngineSocket = "/var/run/docker.sock";
 const defaultProjectName = "harbor-desk-server";
 const defaultEngineName = "Server local Docker Engine";
 
+// The gateway container always receives the Engine socket at this path, because
+// the local-engine Compose overlay pins the bind target. The Engine endpoint the
+// gateway dials is therefore this container path, never the host-side source.
+const containerEngineSocket = "/var/run/docker.sock";
+
+// Docker Desktop hosts resolve the "/var/run/docker.sock" bind source inside
+// their own Linux VM rather than on the host filesystem, so the same Compose
+// source works on Windows and macOS. Only a native Linux Engine exposes the
+// socket as a host filesystem entry that can be inspected before starting.
+const supportedPlatforms = new Map([
+  ["linux", { label: "Linux", hostSocketIsFile: true, canSudo: true }],
+  ["win32", { label: "Windows", hostSocketIsFile: false, canSudo: false }],
+  ["darwin", { label: "macOS", hostSocketIsFile: false, canSudo: true }],
+]);
+
+export function serverPlatformSupport(platform = process.platform) {
+  return supportedPlatforms.get(platform);
+}
+
 const payloadEntries = [
   {
     source: "server-payload/source/package.json",
@@ -109,6 +128,27 @@ function validateProjectName(projectName) {
   return projectName.toLowerCase();
 }
 
+// The Compose bind source is interpreted by the Docker Engine, not by the shell
+// that runs the installer. On a Docker Desktop host the Engine resolves it inside
+// its own Linux VM, so it must stay a POSIX path and must never be run through
+// Windows path resolution, which would rewrite it to a drive-letter path.
+function normalizeEngineSocket(value, platform, cwd) {
+  const socket = safeEnvironmentValue(value, "--engine-socket");
+  const support = supportedPlatforms.get(platform);
+
+  if (!socket.startsWith("/")) {
+    if (support?.hostSocketIsFile) {
+      return resolve(cwd, socket);
+    }
+
+    throw new ServerInstallerError(
+      "--engine-socket must be an absolute Engine-side socket path such as /var/run/docker.sock.",
+    );
+  }
+
+  return socket;
+}
+
 function validateInstallDirectory(directory, cwd) {
   if (!directory) {
     throw new ServerInstallerError(
@@ -128,7 +168,7 @@ function validateInstallDirectory(directory, cwd) {
 
 export function parseServerInstallArgs(
   arguments_,
-  { cwd = process.cwd() } = {},
+  { cwd = process.cwd(), platform = process.platform } = {},
 ) {
   const options = {
     directory: undefined,
@@ -179,11 +219,9 @@ export function parseServerInstallArgs(
 
   return {
     ...options,
+    platform,
     directory: validateInstallDirectory(options.directory, cwd),
-    engineSocket: resolve(
-      cwd,
-      safeEnvironmentValue(options.engineSocket, "--engine-socket"),
-    ),
+    engineSocket: normalizeEngineSocket(options.engineSocket, platform, cwd),
     engineName: safeEnvironmentValue(options.engineName, "--engine-name"),
     projectName: validateProjectName(options.projectName),
   };
@@ -191,7 +229,7 @@ export function parseServerInstallArgs(
 
 export function serverInstallerUsage() {
   return [
-    "Install the Harbor Desk preview gateway on a controlled Linux server.",
+    "Install the Harbor Desk preview gateway on a controlled Linux, Windows, or macOS Docker host.",
     "",
     "Usage:",
     "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
@@ -199,11 +237,14 @@ export function serverInstallerUsage() {
     "Options:",
     "  --directory <path>              Required empty destination directory.",
     `  --port <number>                 Loopback gateway port (default: ${defaultPort}).`,
-    `  --engine-socket <path>          Docker socket to mount (default: ${defaultEngineSocket}).`,
+    `  --engine-socket <path>          Engine-side Docker socket to mount (default: ${defaultEngineSocket}).`,
     `  --engine-name <name>            Display name for the server Engine (default: ${defaultEngineName}).`,
     `  --project-name <name>           Docker Compose project (default: ${defaultProjectName}).`,
     "  --allow-local-engine-socket      Required acknowledgement before mounting the Docker socket.",
     "  --dry-run                       Validate the host and print the plan without writing or starting containers.",
+    "",
+    "On Docker Desktop the socket path is resolved by the Engine inside its own Linux VM,",
+    "so it stays a POSIX path on Windows and macOS as well as on a native Linux Engine.",
     "",
     "The installer creates a loopback-only development preview gateway. A Docker socket",
     "is highly privileged even when its bind mount is marked read-only. This is not a",
@@ -220,12 +261,13 @@ async function readPackageVersion(root) {
 
 export function buildServerInstallPlan(
   options,
-  { root = packageRoot, version = "unknown" } = {},
+  { root = packageRoot, version = "unknown", platform } = {},
 ) {
   return {
     ...options,
     root,
     version,
+    platform: platform ?? options.platform ?? process.platform,
     environmentFile: join(options.directory, ".harbor-desk.env"),
     markerFile: join(options.directory, ".harbor-desk-server-install.json"),
     composeFiles: [
@@ -278,7 +320,14 @@ async function assertEmptyTarget(directory) {
   }
 }
 
-async function assertSocket(socketPath) {
+async function assertSocket(socketPath, platform) {
+  // Only a native Linux Engine exposes the socket as a host filesystem entry.
+  // On Docker Desktop the bind source is resolved inside the Engine VM, so there
+  // is nothing to stat here; Compose reports an invalid source when it starts.
+  if (!supportedPlatforms.get(platform)?.hostSocketIsFile) {
+    return;
+  }
+
   let socket;
   try {
     socket = await lstat(socketPath);
@@ -361,11 +410,19 @@ export function runCommand(
   });
 }
 
-async function resolveDockerRunner(run) {
+async function resolveDockerRunner(run, platform) {
   try {
     await run("docker", ["compose", "version"], { stdio: "ignore" });
     return { command: "docker", prefix: [] };
   } catch {
+    // Windows has no sudo, so a failed probe there is a real error rather than
+    // a permissions issue that elevation could resolve.
+    if (!supportedPlatforms.get(platform)?.canSudo) {
+      throw new ServerInstallerError(
+        "Docker Compose is unavailable to this account. Start Docker Desktop or install Docker Compose before retrying.",
+      );
+    }
+
     try {
       await run("sudo", ["-n", "docker", "compose", "version"], {
         stdio: "ignore",
@@ -400,7 +457,9 @@ async function writeServerEnvironment(plan, randomBytesFn) {
   const secret = randomBytesFn(32).toString("base64");
   const lines = [
     `SECRET_MASTER_KEY=${secret}`,
-    `DEV_ENGINE_HOST=unix://${plan.engineSocket}`,
+    // The gateway dials the socket at its in-container path, which the overlay
+    // pins, so this stays correct even when the host-side source differs.
+    `DEV_ENGINE_HOST=unix://${containerEngineSocket}`,
     `DEV_ENGINE_DISPLAY_NAME=${JSON.stringify(plan.engineName)}`,
     `DOCKER_SOCKET_PATH=${plan.engineSocket}`,
     `HARBOR_GATEWAY_PORT=${plan.port}`,
@@ -479,6 +538,7 @@ async function waitForGatewayHealth(
 export function formatServerInstallPlan(plan) {
   return [
     "Harbor Desk preview gateway install plan",
+    `  Host platform: ${supportedPlatforms.get(plan.platform)?.label ?? plan.platform}`,
     `  Directory: ${plan.directory}`,
     `  Compose project: ${plan.projectName}`,
     `  Gateway: ${plan.healthUrl} (loopback only)`,
@@ -491,16 +551,16 @@ export async function installServer(
   options,
   {
     root = packageRoot,
-    platform = process.platform,
+    platform = options.platform ?? process.platform,
     version,
     run = runCommand,
     randomBytesFn = randomBytes,
     waitForHealth = waitForGatewayHealth,
   } = {},
 ) {
-  if (platform !== "linux") {
+  if (!supportedPlatforms.has(platform)) {
     throw new ServerInstallerError(
-      "install-server supports a controlled Linux Docker host only. Run it on the server, not on the desktop client.",
+      `install-server supports a controlled Docker host on ${[...supportedPlatforms.values()].map((entry) => entry.label).join(", ")}. This host reports "${platform}".`,
     );
   }
 
@@ -514,13 +574,14 @@ export async function installServer(
   const plan = buildServerInstallPlan(options, {
     root,
     version: packageVersion,
+    platform,
   });
 
   await assertPayloadExists(plan.root);
   await assertEmptyTarget(plan.directory);
-  await assertSocket(plan.engineSocket);
+  await assertSocket(plan.engineSocket, platform);
   await assertLoopbackPortAvailable(plan.port);
-  const runner = await resolveDockerRunner(run);
+  const runner = await resolveDockerRunner(run, platform);
 
   if (plan.dryRun) {
     return { plan, installed: false };

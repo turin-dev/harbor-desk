@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import {
   buildServerInstallPlan,
+  formatServerInstallPlan,
+  installServer,
   parseServerInstallArgs,
+  serverPlatformSupport,
   serverInstallerPayload,
   serverInstallerUsage,
 } from "../bin/server-installer.mjs";
@@ -61,7 +64,10 @@ test("documents the explicit preview server installer without hiding socket risk
   const result = runCli("install-server", "--help");
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /controlled Linux server/);
+  assert.match(
+    result.stdout,
+    /controlled Linux, Windows, or macOS Docker host/,
+  );
   assert.match(result.stdout, /--allow-local-engine-socket/);
   assert.match(result.stdout, /refuses non-empty directories or busy ports/);
   assert.match(serverInstallerUsage(), /Docker socket/);
@@ -159,4 +165,108 @@ test("packs a minimal reproducible server payload for install-server", () => {
     false,
     "postpack must remove the generated payload from the source checkout",
   );
+});
+
+test("supports a server-side Docker host on Linux, Windows, and macOS", () => {
+  for (const platform of ["linux", "win32", "darwin"]) {
+    assert.ok(
+      serverPlatformSupport(platform),
+      `${platform} must be a supported server host`,
+    );
+  }
+
+  assert.equal(serverPlatformSupport("aix"), undefined);
+});
+
+test("keeps the Engine socket an Engine-side POSIX path on every host", () => {
+  // Windows path resolution would rewrite "/var/run/docker.sock" into
+  // "C:\\var\\run\\docker.sock" and break the Compose bind source, so the
+  // installer must never run the socket through host path resolution.
+  for (const platform of ["linux", "win32", "darwin"]) {
+    const options = parseServerInstallArgs(
+      ["--directory", "./server-install", "--allow-local-engine-socket"],
+      { cwd: process.cwd(), platform },
+    );
+
+    assert.equal(options.engineSocket, "/var/run/docker.sock");
+    assert.equal(options.platform, platform);
+  }
+});
+
+test("rejects an unsupported host and an unacknowledged Docker socket", async () => {
+  const options = parseServerInstallArgs(
+    [
+      "--directory",
+      "./server-install",
+      "--allow-local-engine-socket",
+      "--dry-run",
+    ],
+    { cwd: process.cwd(), platform: "linux" },
+  );
+
+  await assert.rejects(
+    () =>
+      installServer(options, {
+        platform: "aix",
+        version: "test",
+        root: packageRoot,
+        run: async () => {},
+      }),
+    /supports a controlled Docker host on Linux, Windows, macOS/,
+  );
+
+  await assert.rejects(
+    () =>
+      installServer(
+        { ...options, allowLocalEngineSocket: false },
+        {
+          platform: "win32",
+          version: "test",
+          root: packageRoot,
+          run: async () => {},
+        },
+      ),
+    /Refusing to mount a Docker socket without --allow-local-engine-socket/,
+  );
+});
+
+test("points the gateway at the in-container socket and reports the host platform", () => {
+  const options = parseServerInstallArgs(
+    ["--directory", "./server-install", "--port", "4321"],
+    { cwd: process.cwd(), platform: "win32" },
+  );
+  const plan = buildServerInstallPlan(options, {
+    root: process.cwd(),
+    version: "0.3.0-test",
+    platform: "win32",
+  });
+
+  assert.equal(plan.platform, "win32");
+  assert.match(formatServerInstallPlan(plan), /Host platform: Windows/);
+  assert.match(plan.healthUrl, /^http:\/\/127\.0\.0\.1:4321\//);
+});
+
+test("keeps the desktop artifact version aligned with the release version", async () => {
+  // electron-builder names artifacts from the desktop manifest. If it drifts from
+  // the published release version, a v0.3.0 release ships "Harbor-Desk-0.1.0-Setup.exe".
+  const root = JSON.parse(await readFile(manifestUrl, "utf8"));
+  const desktop = JSON.parse(
+    await readFile(
+      new URL("../apps/desktop/package.json", import.meta.url),
+      "utf8",
+    ),
+  );
+
+  assert.equal(
+    desktop.version,
+    root.version,
+    "apps/desktop version must match the release version used for artifact names",
+  );
+
+  for (const target of ["win", "linux", "mac"]) {
+    assert.ok(
+      desktop.build?.[target],
+      `electron-builder must define a ${target} target so releases cover every client platform`,
+    );
+  }
 });

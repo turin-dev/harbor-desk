@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach artifacts to
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Build and type-check
+        run: pnpm run check
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="${{ inputs.tag || github.ref_name }}"
+
+          # A tag that disagrees with the manifest would publish mislabeled
+          # artifacts, so fail before anything is built.
+          if [ "v${version}" != "${tag}" ]; then
+            echo "Tag ${tag} does not match package version v${version}." >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+  client:
+    name: Build client (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: package:linux
+            artifact: client-linux
+          - os: windows-latest
+            script: package:win
+            artifact: client-windows
+          - os: macos-latest
+            script: package:mac
+            artifact: client-macos
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package desktop client
+        # The artifacts are unsigned unless the build environment supplies signing
+        # material. Publishing is left to an explicit maintainer step.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm --filter @harbor/desktop ${{ matrix.script }}
+
+      - name: Collect distributable artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+
+  server:
+    name: Build server payload
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the gateway container image
+        # Proves the server payload actually builds on a clean host before the
+        # release claims Linux, Windows, and macOS server support.
+        run: docker build -f infra/compose/Dockerfile.gateway -t harbor-desk-gateway:${{ needs.verify.outputs.version }} .
+
+      - name: Pack the npm server installer
+        run: npm pack
+
+      - name: Collect the npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-npm-package
+          if-no-files-found: error
+          retention-days: 14
+          path: harbor-desk-*.tgz

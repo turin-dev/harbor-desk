@@ -23,6 +23,12 @@ privileged even when the filesystem mount is marked read-only; the read-only
 flag does not constrain Docker API actions. Do not turn the fixture into a
 client-local fallback or describe it as production isolation.
 
+`install-server` runs on a Linux, Windows, or macOS Docker host. The Engine
+socket path is interpreted by the Docker Engine, not by the host shell, so it
+must stay a POSIX path such as `/var/run/docker.sock` on every platform. Never
+pass it through host path resolution: on Windows that yields
+`C:\var\run\docker.sock` and breaks the Compose bind source.
+
 ## Development rules
 
 - Use Node.js 22+ and pnpm 11.18.0.
