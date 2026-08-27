@@ -1,0 +1,74 @@
+# Local/reference development only. Published ports bind to loopback so this
+# file is not an Internet-facing deployment recipe.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: harbor_desk
+      POSTGRES_USER: harbor
+      POSTGRES_PASSWORD: harbor-dev-only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: infra/compose/Dockerfile.gateway
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4310
+      AUTH_MODE: oidc
+      DATABASE_URL: postgres://harbor:harbor-dev-only@postgres:5432/harbor_desk
+      REDIS_URL: redis://redis:6379
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: harbor-desk
+      OBJECT_STORAGE_ACCESS_KEY: minio
+      OBJECT_STORAGE_SECRET_KEY: miniosecret
+      ALLOWED_ORIGINS: http://localhost:5173
+      OIDC_PROVIDERS_JSON: "[]"
+      ENGINE_ENDPOINT_ALLOWLIST: ${ENGINE_ENDPOINT_ALLOWLIST:-engine.internal.example}
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:?Set SECRET_MASTER_KEY before starting the reference deployment}
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    ports:
+      - "127.0.0.1:4310:4310"
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/compose/Dockerfile.worker
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

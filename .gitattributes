@@ -1,0 +1,2 @@
+# Keep text files stable across contributor platforms and CI runners.
+* text=auto eol=lf

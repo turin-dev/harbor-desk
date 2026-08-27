@@ -1,0 +1,22 @@
+{
+  "name": "@harbor/worker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@harbor/contracts": "workspace:*",
+    "bullmq": "^5.58.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.3"
+  }
+}

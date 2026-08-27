@@ -1,0 +1,23 @@
+node_modules/
+dist/
+out/
+release/
+.turbo/
+.vite/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+*.crt
+*.p12
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db
+
+# Internal open-source review artifacts. Do not distribute these with a release.
+FORK_REPORT.md
+SANITIZATION_REPORT.md

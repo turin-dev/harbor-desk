@@ -1,0 +1,12 @@
+services:
+  gateway:
+    environment:
+      DEV_ENGINE_HOST: ${DEV_ENGINE_HOST:?Set DEV_ENGINE_HOST to the server-side Docker Engine endpoint}
+      DEV_ENGINE_DISPLAY_NAME: ${DEV_ENGINE_DISPLAY_NAME:-Development remote engine}
+    volumes:
+      - type: bind
+        source: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false

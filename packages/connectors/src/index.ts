@@ -1,0 +1,718 @@
+import { createHash } from "node:crypto";
+import {
+  request as httpRequest,
+  type IncomingMessage,
+  type RequestOptions as HttpRequestOptions,
+} from "node:http";
+import {
+  request as httpsRequest,
+  type RequestOptions as HttpsRequestOptions,
+} from "node:https";
+import { readFile } from "node:fs/promises";
+import type {
+  CapabilityMatrix,
+  ContainerCreateInput,
+  ContainerSummary,
+  EngineEvent,
+  EngineSummary,
+  ImagePullInput,
+  ImageSummary,
+  NetworkSummary,
+  NetworkCreateInput,
+  VolumeCreateInput,
+  VolumeSummary,
+} from "@harbor/contracts";
+
+export interface EngineTlsMaterial {
+  ca?: string;
+  cert?: string;
+  key?: string;
+}
+
+export interface EngineClientOptions {
+  endpoint: string;
+  tls?: EngineTlsMaterial;
+  timeoutMs?: number;
+}
+
+export interface EngineProbe {
+  summary: EngineSummary;
+  capabilities: CapabilityMatrix;
+}
+
+interface RawContainer {
+  Id: string;
+  Names?: string[];
+  Image?: string;
+  ImageID?: string;
+  Command?: string;
+  Created?: number;
+  State?: string;
+  Status?: string;
+  Ports?: Array<{
+    IP?: string;
+    PrivatePort?: number;
+    PublicPort?: number;
+    Type?: string;
+  }>;
+  Labels?: Record<string, string>;
+}
+
+interface RawImage {
+  Id: string;
+  RepoTags?: string[];
+  RepoDigests?: string[];
+  Created?: number;
+  Size?: number;
+}
+
+interface RawVolume {
+  Name: string;
+  Driver?: string;
+  Mountpoint?: string;
+  Scope?: string;
+  CreatedAt?: string;
+}
+
+interface RawNetwork {
+  Id: string;
+  Name: string;
+  Driver?: string;
+  Scope?: string;
+  Internal?: boolean;
+}
+
+interface RawVersion {
+  Version?: string;
+  ApiVersion?: string;
+  MinAPIVersion?: string;
+}
+
+interface RawInfo {
+  ID?: string;
+  ServerVersion?: string;
+  ApiVersion?: string;
+  MinAPIVersion?: string;
+  OperatingSystem?: string;
+  Architecture?: string;
+  Containers?: number;
+  ContainersRunning?: number;
+  ContainersStopped?: number;
+  Images?: number;
+  MemTotal?: number;
+  Driver?: string;
+  NCPU?: number;
+}
+
+interface RawExecCreateResponse {
+  Id?: string;
+}
+
+interface RawCreateResponse {
+  Id?: string;
+  Name?: string;
+  Warnings?: string[];
+}
+
+type EngineRequestOptions = HttpRequestOptions &
+  Pick<HttpsRequestOptions, "ca" | "cert" | "key" | "rejectUnauthorized">;
+
+export class EngineRequestError extends Error {
+  public readonly statusCode: number;
+  public readonly responseBody: string;
+
+  constructor(message: string, statusCode: number, responseBody: string) {
+    super(message);
+    this.name = "EngineRequestError";
+    this.statusCode = statusCode;
+    this.responseBody = responseBody;
+  }
+}
+
+function parseApiVersion(value: string | undefined): number {
+  const parsed = Number.parseFloat(value?.replace(/^v/i, "") ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toContainerState(
+  value: string | undefined,
+): ContainerSummary["state"] {
+  switch (value) {
+    case "created":
+    case "restarting":
+    case "running":
+    case "paused":
+    case "exited":
+    case "dead":
+      return value;
+    default:
+      return "unknown";
+  }
+}
+
+function formatPorts(ports: RawContainer["Ports"]): string[] {
+  return [
+    ...new Set(
+      (ports ?? []).map((port) => {
+        const publicPort = port.PublicPort ? `${port.PublicPort}:` : "";
+        return `${publicPort}${port.PrivatePort ?? "?"}${port.Type ? `/${port.Type}` : ""}`;
+      }),
+    ),
+  ];
+}
+
+function toDate(seconds: number | undefined): string | undefined {
+  return typeof seconds === "number"
+    ? new Date(seconds * 1000).toISOString()
+    : undefined;
+}
+
+function digestForEvent(event: EngineEvent): string {
+  return createHash("sha256")
+    .update(JSON.stringify(event))
+    .digest("hex")
+    .slice(0, 20);
+}
+
+export class DockerEngineClient {
+  private readonly endpoint: URL;
+  private readonly endpointText: string;
+  private readonly tls?: EngineTlsMaterial;
+  private readonly timeoutMs: number;
+  private apiVersion = "";
+
+  constructor(options: EngineClientOptions) {
+    this.endpointText = options.endpoint;
+    this.endpoint = new URL(options.endpoint);
+    if (
+      !["http:", "https:", "npipe:", "unix:"].includes(this.endpoint.protocol)
+    ) {
+      throw new Error(
+        "Docker Engine endpoint must use http, https, npipe, or unix",
+      );
+    }
+    this.tls = options.tls;
+    this.timeoutMs = options.timeoutMs ?? 15_000;
+  }
+
+  public async probe(): Promise<EngineProbe> {
+    const [version, info] = await Promise.all([
+      this.requestJson<RawVersion>("/version"),
+      this.requestJson<RawInfo>("/info"),
+    ]);
+
+    this.apiVersion = version.ApiVersion ?? info.ApiVersion ?? "";
+    const apiVersion = version.ApiVersion ?? info.ApiVersion;
+    const minApiVersion = version.MinAPIVersion ?? info.MinAPIVersion;
+
+    return {
+      summary: {
+        id: info.ID,
+        version: version.Version ?? info.ServerVersion,
+        apiVersion,
+        minApiVersion,
+        operatingSystem: info.OperatingSystem,
+        architecture: info.Architecture,
+        containers: info.Containers,
+        containersRunning: info.ContainersRunning,
+        containersStopped: info.ContainersStopped,
+        images: info.Images,
+        memoryTotalBytes: info.MemTotal,
+      },
+      capabilities: {
+        containers: true,
+        images: true,
+        volumes: true,
+        networks: true,
+        logs: true,
+        stats: true,
+        exec: true,
+        compose: false,
+        buildkit: parseApiVersion(apiVersion) >= 1.39,
+        kubernetes: false,
+        extensions: false,
+        imageScan: false,
+        volumeFileBrowser: false,
+      },
+    };
+  }
+
+  public async getInfo(): Promise<EngineSummary> {
+    const info = await this.requestJson<RawInfo>("/info");
+    return {
+      id: info.ID,
+      version: info.ServerVersion,
+      apiVersion: info.ApiVersion,
+      minApiVersion: info.MinAPIVersion,
+      operatingSystem: info.OperatingSystem,
+      architecture: info.Architecture,
+      containers: info.Containers,
+      containersRunning: info.ContainersRunning,
+      containersStopped: info.ContainersStopped,
+      images: info.Images,
+      memoryTotalBytes: info.MemTotal,
+    };
+  }
+
+  public async listContainers(
+    all = true,
+    hostId = "",
+  ): Promise<ContainerSummary[]> {
+    const query = new URLSearchParams({ all: all ? "1" : "0" });
+    const rows = await this.requestJson<RawContainer[]>(
+      `/containers/json?${query.toString()}`,
+    );
+    return rows.map((row) => ({
+      id: row.Id,
+      name: row.Names?.[0]?.replace(/^\//, "") ?? row.Id.slice(0, 12),
+      image: row.Image ?? "",
+      imageId: row.ImageID,
+      command: row.Command,
+      createdAt: toDate(row.Created),
+      state: toContainerState(row.State),
+      status: row.Status ?? row.State ?? "unknown",
+      ports: formatPorts(row.Ports),
+      labels: row.Labels ?? {},
+      hostId,
+    }));
+  }
+
+  public async listImages(hostId = ""): Promise<ImageSummary[]> {
+    const rows = await this.requestJson<RawImage[]>("/images/json?all=1");
+    return rows.flatMap((row) => {
+      const tags = row.RepoTags?.length ? row.RepoTags : ["<none>:<none>"];
+      return tags.map((tag) => {
+        const separator = tag.lastIndexOf(":");
+        return {
+          id: row.Id,
+          repository: separator > 0 ? tag.slice(0, separator) : tag,
+          tag: separator > 0 ? tag.slice(separator + 1) : "<none>",
+          digest: row.RepoDigests?.[0],
+          createdAt: toDate(row.Created),
+          sizeBytes: row.Size,
+          hostId,
+        };
+      });
+    });
+  }
+
+  public async inspectImage(imageId: string): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>(
+      `/images/${encodeURIComponent(imageId)}/json`,
+    );
+  }
+
+  public async pullImage(input: ImagePullInput): Promise<void> {
+    const response = await this.requestStream(
+      `/images/create?fromImage=${encodeURIComponent(input.image)}`,
+      { method: "POST" },
+    );
+    const body = await collectBody(response);
+    for (const line of body.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const frame = JSON.parse(line) as { error?: unknown };
+        if (typeof frame.error === "string" && frame.error)
+          throw new EngineRequestError(frame.error, 500, line);
+      } catch (error) {
+        if (error instanceof EngineRequestError) throw error;
+        // Docker may emit a non-JSON progress line; HTTP status remains the
+        // source of truth for a completed pull.
+      }
+    }
+  }
+
+  public async deleteImage(imageId: string, force = false): Promise<void> {
+    await this.requestJson(
+      `/images/${encodeURIComponent(imageId)}?force=${force ? "1" : "0"}`,
+      { method: "DELETE" },
+    );
+  }
+
+  public async listVolumes(hostId = ""): Promise<VolumeSummary[]> {
+    const response = await this.requestJson<{ Volumes?: RawVolume[] }>(
+      "/volumes",
+    );
+    return (response.Volumes ?? []).map((row) => ({
+      name: row.Name,
+      driver: row.Driver ?? "unknown",
+      mountpoint: row.Mountpoint,
+      scope: row.Scope,
+      createdAt: row.CreatedAt,
+      hostId,
+    }));
+  }
+
+  public async inspectVolume(name: string): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>(
+      `/volumes/${encodeURIComponent(name)}`,
+    );
+  }
+
+  public async createVolume(input: VolumeCreateInput): Promise<VolumeSummary> {
+    const response = await this.requestJson<RawCreateResponse>(
+      "/volumes/create",
+      {
+        method: "POST",
+        body: { Name: input.name, Driver: input.driver || "local" },
+      },
+    );
+    return {
+      name: response.Name ?? input.name,
+      driver: input.driver || "local",
+      hostId: "",
+    };
+  }
+
+  public async deleteVolume(name: string, force = false): Promise<void> {
+    await this.requestJson(
+      `/volumes/${encodeURIComponent(name)}?force=${force ? "1" : "0"}`,
+      { method: "DELETE" },
+    );
+  }
+
+  public async listNetworks(hostId = ""): Promise<NetworkSummary[]> {
+    const rows = await this.requestJson<RawNetwork[]>("/networks");
+    return rows.map((row) => ({
+      id: row.Id,
+      name: row.Name,
+      driver: row.Driver ?? "unknown",
+      scope: row.Scope ?? "local",
+      internal: row.Internal ?? false,
+      hostId,
+    }));
+  }
+
+  public async inspectNetwork(
+    networkId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>(
+      `/networks/${encodeURIComponent(networkId)}`,
+    );
+  }
+
+  public async createNetwork(input: NetworkCreateInput): Promise<string> {
+    const response = await this.requestJson<RawCreateResponse>(
+      "/networks/create",
+      {
+        method: "POST",
+        body: {
+          Name: input.name,
+          Driver: input.driver || "bridge",
+          Internal: input.internal ?? false,
+        },
+      },
+    );
+    if (!response.Id)
+      throw new Error("Docker Engine did not return a network id.");
+    return response.Id;
+  }
+
+  public async deleteNetwork(networkId: string): Promise<void> {
+    await this.requestJson(`/networks/${encodeURIComponent(networkId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  public async createContainer(input: ContainerCreateInput): Promise<string> {
+    const query = input.name ? `?name=${encodeURIComponent(input.name)}` : "";
+    const response = await this.requestJson<RawCreateResponse>(
+      `/containers/create${query}`,
+      {
+        method: "POST",
+        body: {
+          Image: input.image,
+          ...(input.command?.trim()
+            ? { Cmd: ["sh", "-lc", input.command.trim()] }
+            : {}),
+        },
+      },
+    );
+    if (!response.Id)
+      throw new Error("Docker Engine did not return a container id.");
+    return response.Id;
+  }
+
+  public async actionContainer(
+    containerId: string,
+    action: "start" | "stop" | "restart" | "pause" | "unpause" | "kill",
+  ): Promise<void> {
+    await this.requestJson(
+      `/containers/${encodeURIComponent(containerId)}/${action}`,
+      {
+        method: "POST",
+      },
+    );
+  }
+
+  public async deleteContainer(
+    containerId: string,
+    force = false,
+  ): Promise<void> {
+    await this.requestJson(
+      `/containers/${encodeURIComponent(containerId)}?force=${force ? "1" : "0"}`,
+      { method: "DELETE" },
+    );
+  }
+
+  public async inspectContainer(
+    containerId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>(
+      `/containers/${encodeURIComponent(containerId)}/json`,
+    );
+  }
+
+  public async containerLogs(
+    containerId: string,
+    tail = "200",
+  ): Promise<string> {
+    const query = new URLSearchParams({
+      stdout: "1",
+      stderr: "1",
+      timestamps: "1",
+      tail,
+    });
+    const response = await this.requestStream(
+      `/containers/${encodeURIComponent(containerId)}/logs?${query.toString()}`,
+    );
+    return decodeDockerStream(await collectBuffer(response));
+  }
+
+  public async containerStats(
+    containerId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.requestJson<Record<string, unknown>>(
+      `/containers/${encodeURIComponent(containerId)}/stats?stream=false`,
+    );
+  }
+
+  public async createExec(
+    containerId: string,
+    command: string[],
+    tty = true,
+  ): Promise<string> {
+    const response = await this.requestJson<RawExecCreateResponse>(
+      `/containers/${encodeURIComponent(containerId)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdin: false,
+          AttachStdout: true,
+          AttachStderr: true,
+          Tty: tty,
+          Cmd: command,
+        },
+      },
+    );
+    if (!response.Id)
+      throw new Error("Docker Engine did not return an exec session id.");
+    return response.Id;
+  }
+
+  public async startExec(execId: string, tty = true): Promise<IncomingMessage> {
+    return this.requestStream(`/exec/${encodeURIComponent(execId)}/start`, {
+      method: "POST",
+      body: { Detach: false, Tty: tty },
+    });
+  }
+
+  public async resizeExec(
+    execId: string,
+    height: number,
+    width: number,
+  ): Promise<void> {
+    await this.requestJson(
+      `/exec/${encodeURIComponent(execId)}/resize?h=${Math.max(1, Math.floor(height))}&w=${Math.max(1, Math.floor(width))}`,
+      {
+        method: "POST",
+      },
+    );
+  }
+
+  public async createEventStream(): Promise<IncomingMessage> {
+    const response = await this.requestStream("/events");
+    return response;
+  }
+
+  public async requestJson<T = unknown>(
+    path: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    } = {},
+  ): Promise<T> {
+    const response = await this.requestRaw(path, options);
+    const body = await collectBody(response);
+    if (response.statusCode && response.statusCode >= 400) {
+      throw new EngineRequestError(
+        `Docker Engine returned HTTP ${response.statusCode}`,
+        response.statusCode,
+        body,
+      );
+    }
+    if (!body) return undefined as T;
+    try {
+      return JSON.parse(body) as T;
+    } catch {
+      return body as T;
+    }
+  }
+
+  public async requestStream(
+    path: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    } = {},
+  ): Promise<IncomingMessage> {
+    const response = await this.requestRaw(path, { ...options, stream: true });
+    if (response.statusCode && response.statusCode >= 400) {
+      const body = await collectBody(response);
+      throw new EngineRequestError(
+        `Docker Engine returned HTTP ${response.statusCode}`,
+        response.statusCode,
+        body,
+      );
+    }
+    return response;
+  }
+
+  public static async fromFiles(
+    endpoint: string,
+    files: { caFile?: string; certFile?: string; keyFile?: string },
+  ): Promise<DockerEngineClient> {
+    const [ca, cert, key] = await Promise.all([
+      files.caFile
+        ? readFile(files.caFile, "utf8")
+        : Promise.resolve(undefined),
+      files.certFile
+        ? readFile(files.certFile, "utf8")
+        : Promise.resolve(undefined),
+      files.keyFile
+        ? readFile(files.keyFile, "utf8")
+        : Promise.resolve(undefined),
+    ]);
+    return new DockerEngineClient({ endpoint, tls: { ca, cert, key } });
+  }
+
+  public static eventCursor(event: EngineEvent): string {
+    return `${event.timeNano ?? event.time ?? Date.now()}-${digestForEvent(event)}`;
+  }
+
+  private async requestRaw(
+    path: string,
+    options: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+      stream?: boolean;
+    } = {},
+  ): Promise<IncomingMessage> {
+    const pathWithVersion =
+      this.apiVersion &&
+      !path.startsWith("/version") &&
+      !path.startsWith("/info")
+        ? `/v${this.apiVersion.replace(/^v/, "")}${path}`
+        : path;
+    const socketPath = this.getSocketPath();
+    const target = socketPath
+      ? undefined
+      : new URL(pathWithVersion, this.endpoint);
+    const requestOptions: EngineRequestOptions = {
+      ...(socketPath
+        ? { socketPath }
+        : {
+            protocol: target?.protocol,
+            hostname: target?.hostname,
+            port: target?.port || undefined,
+            path: `${target?.pathname ?? ""}${target?.search ?? ""}`,
+          }),
+      ...(socketPath ? { path: pathWithVersion } : {}),
+      method: options.method ?? "GET",
+      headers: {
+        accept: "application/json",
+        ...(options.body === undefined
+          ? {}
+          : { "content-type": "application/json" }),
+        ...options.headers,
+      },
+      timeout: options.stream ? 0 : this.timeoutMs,
+    };
+
+    if (target?.protocol === "https:") {
+      requestOptions.ca = this.tls?.ca;
+      requestOptions.cert = this.tls?.cert;
+      requestOptions.key = this.tls?.key;
+      requestOptions.rejectUnauthorized = true;
+    }
+
+    const request =
+      target?.protocol === "https:"
+        ? httpsRequest(requestOptions)
+        : httpRequest(requestOptions);
+
+    if (options.body !== undefined) {
+      request.write(JSON.stringify(options.body));
+    }
+    request.end();
+
+    return await new Promise<IncomingMessage>((resolve, reject) => {
+      request.once("response", resolve);
+      request.once("error", reject);
+      request.once("timeout", () => {
+        request.destroy(
+          new Error(
+            `Docker Engine request timed out after ${this.timeoutMs}ms`,
+          ),
+        );
+      });
+    });
+  }
+
+  private getSocketPath(): string | undefined {
+    if (this.endpoint.protocol === "unix:") return this.endpoint.pathname;
+    if (this.endpoint.protocol !== "npipe:") return undefined;
+
+    const normalized = this.endpointText
+      .replace(/^npipe:\/\//i, "")
+      .replace(/^\/+/, "")
+      .replace(/\//g, "\\");
+    return normalized.startsWith(".") ? `\\\\${normalized}` : `\\${normalized}`;
+  }
+}
+
+async function collectBody(response: IncomingMessage): Promise<string> {
+  return (await collectBuffer(response)).toString("utf8");
+}
+
+async function collectBuffer(response: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of response)
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+function decodeDockerStream(buffer: Buffer): string {
+  if (buffer.length < 8 || (buffer[0] !== 1 && buffer[0] !== 2))
+    return buffer.toString("utf8");
+
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  while (
+    offset + 8 <= buffer.length &&
+    (buffer[offset] === 1 || buffer[offset] === 2)
+  ) {
+    const length = buffer.readUInt32BE(offset + 4);
+    const start = offset + 8;
+    const end = start + length;
+    if (end > buffer.length) return buffer.toString("utf8");
+    chunks.push(buffer.subarray(start, end));
+    offset = end;
+  }
+  return (offset === buffer.length ? Buffer.concat(chunks) : buffer).toString(
+    "utf8",
+  );
+}

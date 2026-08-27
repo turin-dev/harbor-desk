@@ -1,0 +1,448 @@
+openapi: 3.1.0
+info:
+  title: Harbor Desk Gateway API
+  version: 0.1.0
+  description: Remote-first container operations API. Docker Engine credentials remain server-side.
+servers:
+  - url: http://127.0.0.1:4310
+security:
+  - bearerAuth: []
+paths:
+  /health/live:
+    get:
+      security: []
+      responses:
+        "200":
+          description: Gateway liveness
+  /api/v1/auth/providers:
+    get:
+      security: []
+      responses:
+        "200":
+          description: Configured OIDC providers
+  /api/v1/auth/authorize/{providerId}:
+    get:
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/providerId"
+        - {
+            name: redirectUri,
+            in: query,
+            required: true,
+            schema: { type: string },
+          }
+        - {
+            name: state,
+            in: query,
+            required: true,
+            schema: { type: string, minLength: 16 },
+          }
+        - {
+            name: nonce,
+            in: query,
+            required: true,
+            schema: { type: string, minLength: 16 },
+          }
+        - {
+            name: codeChallenge,
+            in: query,
+            required: true,
+            schema: { type: string, minLength: 43 },
+          }
+      responses:
+        "302":
+          description: Redirect to the selected OIDC provider
+  /api/v1/auth/token:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [providerId, redirectUri]
+              properties:
+                providerId: { type: string }
+                code: { type: string }
+                codeVerifier: { type: string }
+                nonce: { type: string }
+                refreshToken: { type: string }
+                redirectUri:
+                  { type: string, enum: [harbor-desk://auth/callback] }
+      responses:
+        "200":
+          description: Short-lived access token and optional rotated refresh token
+  /api/v1/auth/ws-ticket:
+    post:
+      responses:
+        "201":
+          description: One-time WebSocket ticket
+  /api/v1/me:
+    get:
+      responses:
+        "200":
+          description: Current user
+  /api/v1/permissions:
+    get:
+      responses:
+        "200":
+          description: Current permissions
+  /api/v1/hosts:
+    get:
+      responses:
+        "200":
+          description: Visible remote hosts
+    post:
+      responses:
+        "201":
+          description: Registered remote host
+  /api/v1/hosts/{hostId}/dashboard:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Host dashboard summary
+  /api/v1/hosts/{hostId}/containers:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Remote containers
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContainerCreateInput"
+      responses:
+        "202":
+          description: Container create and start operation
+  /api/v1/hosts/{hostId}/containers/{containerId}/inspect:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+      responses:
+        "200":
+          description: Sanitized container inspect payload
+  /api/v1/hosts/{hostId}/containers/{containerId}/logs:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+        - { name: tail, in: query, schema: { type: string, default: "200" } }
+      responses:
+        "200":
+          description: Recent container logs
+  /api/v1/hosts/{hostId}/containers/{containerId}/stats:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+      responses:
+        "200":
+          description: One container stats snapshot
+  /api/v1/hosts/{hostId}/containers/{containerId}/exec:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command]
+              properties:
+                command: { type: string, maxLength: 4096 }
+      responses:
+        "201":
+          description: Terminal session created
+  /api/v1/hosts/{hostId}/images:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Remote images
+  /api/v1/hosts/{hostId}/images/pull:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImagePullInput"
+      responses:
+        "202":
+          description: Image pull operation
+  /api/v1/hosts/{hostId}/images/{imageId}/inspect:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/imageId"
+      responses:
+        "200":
+          description: Remote image inspect payload
+  /api/v1/hosts/{hostId}/images/{imageId}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/imageId"
+        - $ref: "#/components/parameters/idempotencyKey"
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "202":
+          description: Image deletion operation
+  /api/v1/hosts/{hostId}/volumes:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Remote volumes
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VolumeCreateInput"
+      responses:
+        "202":
+          description: Volume creation operation
+  /api/v1/hosts/{hostId}/volumes/{volumeName}/inspect:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/volumeName"
+      responses:
+        "200":
+          description: Remote volume inspect payload
+  /api/v1/hosts/{hostId}/volumes/{volumeName}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/volumeName"
+        - $ref: "#/components/parameters/idempotencyKey"
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "202":
+          description: Volume deletion operation
+  /api/v1/hosts/{hostId}/networks:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Remote networks
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkCreateInput"
+      responses:
+        "202":
+          description: Network creation operation
+  /api/v1/hosts/{hostId}/networks/{networkId}/inspect:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/networkId"
+      responses:
+        "200":
+          description: Remote network inspect payload
+  /api/v1/hosts/{hostId}/networks/{networkId}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/networkId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "202":
+          description: Network deletion operation
+  /api/v1/stream:
+    get:
+      description: WebSocket upgrade endpoint for host events and operation progress.
+      responses:
+        "101":
+          description: Switching protocols
+  /api/v1/operations/{operationId}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/operationId"
+      responses:
+        "200":
+          description: Operation state
+  /api/v1/operations/{operationId}/cancel:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/operationId"
+      responses:
+        "200":
+          description: Cancelled or already terminal operation
+  /api/v1/audit:
+    get:
+      parameters:
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 100 },
+          }
+      responses:
+        "200":
+          description: Administrator audit metadata
+  /api/v1/terminal/{sessionId}:
+    get:
+      description: WebSocket upgrade endpoint for container exec output and resize frames.
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      responses:
+        "101":
+          description: Switching protocols
+components:
+  parameters:
+    hostId:
+      name: hostId
+      in: path
+      required: true
+      schema:
+        type: string
+    containerId:
+      name: containerId
+      in: path
+      required: true
+      schema:
+        type: string
+    imageId:
+      name: imageId
+      in: path
+      required: true
+      schema:
+        type: string
+    volumeName:
+      name: volumeName
+      in: path
+      required: true
+      schema:
+        type: string
+    networkId:
+      name: networkId
+      in: path
+      required: true
+      schema:
+        type: string
+    providerId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+    operationId:
+      name: operationId
+      in: path
+      required: true
+      schema:
+        type: string
+    sessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+  schemas:
+    ApiProblem:
+      type: object
+      required: [code, message, retryable, requestId]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+        requestId: { type: string }
+    ApiErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ApiProblem"
+    Operation:
+      type: object
+      required: [id, kind, status]
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        kind: { type: string }
+        status:
+          {
+            type: string,
+            enum: [queued, running, succeeded, failed, cancelled],
+          }
+        progress: { type: number, minimum: 0, maximum: 100 }
+        message: { type: string }
+        error: { $ref: "#/components/schemas/ApiProblem" }
+    TerminalSession:
+      type: object
+      required: [id, hostId, containerId, createdAt, status]
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        containerId: { type: string }
+        createdAt: { type: string, format: date-time }
+        status: { type: string, enum: [created, running, closed] }
+    ContainerCreateInput:
+      type: object
+      required: [image]
+      properties:
+        image: { type: string, minLength: 1, maxLength: 512 }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        command: { type: string, maxLength: 4096 }
+    ImagePullInput:
+      type: object
+      required: [image]
+      properties:
+        image: { type: string, minLength: 1, maxLength: 512 }
+    VolumeCreateInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        driver: { type: string, minLength: 1, maxLength: 128 }
+    NetworkCreateInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        driver: { type: string, minLength: 1, maxLength: 128 }
+        internal: { type: boolean, default: false }
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

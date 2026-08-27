@@ -1,0 +1,30 @@
+{
+  "name": "@harbor/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/websocket": "^11.2.0",
+    "@harbor/config": "workspace:*",
+    "@harbor/connectors": "workspace:*",
+    "@harbor/contracts": "workspace:*",
+    "@sinclair/typebox": "^0.34.41",
+    "fastify": "^5.5.0",
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.3"
+  }
+}
