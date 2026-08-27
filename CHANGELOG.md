@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This project follows
 previews: the public API, gateway contracts, and packaging entry points can
 still change between minor versions.
 
+## [0.3.1] - 2026-08-28
+
+### Fixed
+
+- Packaged desktop clients now load their renderer JavaScript, stylesheets,
+  and fonts through package-relative `file://` URLs. Version 0.3.0 emitted
+  root-relative `/assets/...` references, so Electron displayed only the
+  window background after installation on Windows, Linux, and macOS.
+- Added a release regression test that rejects root-relative renderer assets
+  and verifies every local HTML asset reference exists in the built bundle.
+
 ## [0.3.0] - 2026-08-27
 
 ### Added
@@ -111,6 +122,7 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
+[0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1
 [0.3.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.1.1

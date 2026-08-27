@@ -19,6 +19,10 @@ const cliPath = fileURLToPath(
   new URL("../bin/harbor-desk.mjs", import.meta.url),
 );
 const manifestUrl = new URL("../package.json", import.meta.url);
+const rendererIndexUrl = new URL(
+  "../apps/desktop/dist/renderer/index.html",
+  import.meta.url,
+);
 const packageRoot = resolve(dirname(cliPath), "..");
 
 function runCli(...arguments_) {
@@ -267,6 +271,34 @@ test("keeps the desktop artifact version aligned with the release version", asyn
     assert.ok(
       desktop.build?.[target],
       `electron-builder must define a ${target} target so releases cover every client platform`,
+    );
+  }
+});
+
+test("keeps packaged renderer assets relative to the file URL", async () => {
+  const html = await readFile(rendererIndexUrl, "utf8");
+  const references = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  const localReferences = references.filter(
+    (reference) =>
+      !/^[a-z][a-z\d+.-]*:/i.test(reference) && !reference.startsWith("//"),
+  );
+
+  assert.ok(
+    localReferences.length >= 2,
+    "the packaged renderer must load its JavaScript and stylesheet assets",
+  );
+
+  for (const reference of localReferences) {
+    assert.ok(
+      reference.startsWith("./"),
+      `${reference} must be package-relative so Electron can load it through file://`,
+    );
+    assert.equal(
+      existsSync(fileURLToPath(new URL(reference, rendererIndexUrl))),
+      true,
+      `${reference} must resolve to a file in the renderer bundle`,
     );
   }
 });
