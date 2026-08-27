@@ -1,9 +1,37 @@
 {
   "name": "harbor-desk",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
+  "private": false,
   "description": "A remote Docker operations desktop client with a server-side engine gateway.",
   "license": "Apache-2.0",
+  "keywords": [
+    "docker",
+    "containers",
+    "remote",
+    "electron",
+    "gateway",
+    "devops"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/turin-dev/harbor-desk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/turin-dev/harbor-desk/issues"
+  },
+  "homepage": "https://github.com/turin-dev/harbor-desk#readme",
+  "bin": {
+    "harbor-desk": "bin/harbor-desk.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=22.0.0"
@@ -13,9 +41,10 @@
     "check": "pnpm run build && pnpm -r --if-present --sort run check",
     "dev": "concurrently -k \"pnpm --filter @harbor/gateway dev\" \"pnpm --filter @harbor/desktop dev\"",
     "soak:8h": "node scripts/soak-runtime.mjs",
+    "npx:smoke": "node bin/harbor-desk.mjs --help",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm -r --if-present --sort run test"
+    "test": "node --test test/npx-bootstrap.test.mjs && pnpm -r --if-present --sort run test"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

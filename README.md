@@ -44,6 +44,22 @@ Kubernetes/registry/extension/AI adapters are intentionally still separate
 implementation work. Their screens show an explicit unavailable state rather
 than fixture data or fake success.
 
+## npx bootstrap
+
+Use the small npm bootstrap command to find the source, preview releases, and
+the private server-side installation path:
+
+```powershell
+npx --yes harbor-desk
+npx --yes harbor-desk --open-release
+```
+
+This command does **not** install or launch the Electron desktop application,
+download an unsigned Windows installer, access Docker Desktop, contact a local
+Docker socket, or start a Docker daemon. It is intentionally a safe entry point
+to the open-source preview while the desktop installer remains unsigned and the
+production control-plane dependencies are still incomplete.
+
 ## Architecture and trust boundary
 
 ```text
