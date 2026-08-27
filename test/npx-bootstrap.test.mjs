@@ -270,3 +270,32 @@ test("keeps the desktop artifact version aligned with the release version", asyn
     );
   }
 });
+
+test("packaging scripts build the workspace packages the renderer imports", async () => {
+  // "pnpm --filter @harbor/desktop package:win" only builds the desktop app, so the
+  // renderer fails with 'Failed to resolve entry for package "@harbor/ui"' on a clean
+  // checkout. The root scripts must build dependencies first via the "..." selector.
+  const root = JSON.parse(await readFile(manifestUrl, "utf8"));
+  const workflow = await readFile(
+    new URL("../.github/workflows/release.yml", import.meta.url),
+    "utf8",
+  );
+
+  for (const script of ["package:linux", "package:mac", "package:win"]) {
+    const definition = root.scripts?.[script];
+
+    assert.ok(definition, `root package.json must define ${script}`);
+    assert.match(
+      definition,
+      /@harbor\/desktop\.\.\./,
+      `${script} must build workspace dependencies before packaging`,
+    );
+  }
+
+  // The release workflow must call the root scripts, not the desktop-only ones.
+  assert.match(workflow, /run: pnpm run \$\{\{ matrix\.script \}\}/);
+  assert.doesNotMatch(
+    workflow,
+    /pnpm --filter @harbor\/desktop \$\{\{ matrix\.script \}\}/,
+  );
+});

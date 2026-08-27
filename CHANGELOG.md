@@ -35,6 +35,11 @@ still change between minor versions.
 - The desktop manifest version was `0.1.0` while the release was `0.2.0`, so a
   `v0.2.0` build produced `Harbor-Desk-0.1.0-Setup.exe`. Both manifests are now
   `0.3.0` and a test plus a release-workflow tag check keep them aligned.
+- Client packaging no longer fails on a clean checkout. The packaging scripts
+  only built the desktop app, so the renderer aborted with `Failed to resolve
+entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
+  The root `package:linux`, `package:mac`, and `package:win` scripts now build
+  workspace dependencies first, and the release workflow calls those root scripts.
 
 ### Repository and CI
 
