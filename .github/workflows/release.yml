@@ -124,7 +124,7 @@ jobs:
         run: pnpm run ${{ matrix.script }}
 
       - name: Collect distributable artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
@@ -142,6 +142,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      npm_release_version: ${{ steps.npm_registry.outputs.release_version }}
+      npm_latest_version: ${{ steps.npm_registry.outputs.latest_version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -171,8 +174,20 @@ jobs:
       - name: Pack the npm server installer
         run: npm pack
 
+      - name: Inspect npm registry distribution
+        id: npm_registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify.outputs.version }}"
+          release_version="$(npm view "harbor-desk@${version}" version --silent 2>/dev/null || true)"
+          latest_version="$(npm view harbor-desk version --silent 2>/dev/null || true)"
+
+          echo "release_version=${release_version}" >>"$GITHUB_OUTPUT"
+          echo "latest_version=${latest_version}" >>"$GITHUB_OUTPUT"
+
       - name: Collect the npm tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-npm-package
           if-no-files-found: error
@@ -193,15 +208,20 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
       - name: Download client artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: client-*
           path: release-assets
           merge-multiple: true
 
       - name: Download server package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: server-npm-package
           path: release-assets
@@ -216,33 +236,10 @@ jobs:
 
       - name: Write release notes
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '## Harbor Desk %s preview\n\n' "$RELEASE_TAG" > release-notes.md
-          cat >> release-notes.md <<'EOF'
-
-          This preview contains the remote-first desktop client and the server-side
-          Docker gateway installer.
-
-          ### Downloads
-
-          - Linux client: x86_64 AppImage and Debian package
-          - Windows client: x64 NSIS installer
-          - macOS client: x64 and arm64 DMG/ZIP packages
-          - Server: npm package for `npx --yes harbor-desk install-server`
-          - `SHA256SUMS`: SHA-256 checksums for every release asset
-
-          The server installer supports Linux, Windows, and macOS hosts running
-          Docker or Docker Desktop. It is a development preview and requires an
-          explicit `--allow-local-engine-socket` acknowledgement when the local
-          Docker Engine socket is mounted.
-
-          Desktop binaries are currently unsigned. Verify `SHA256SUMS` before
-          installation and use the source build for environments that require
-          signed artifacts.
-          EOF
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+          NPM_RELEASE_VERSION: ${{ needs.server.outputs.npm_release_version }}
+          NPM_LATEST_VERSION: ${{ needs.server.outputs.npm_latest_version }}
+        run: node scripts/generate-release-notes.mjs > release-notes.md
 
       - name: Publish release assets
         env:

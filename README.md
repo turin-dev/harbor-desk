@@ -65,8 +65,26 @@ than fixture data or fake success.
 
 ## npx bootstrap
 
-Use the npm command to find the source, preview releases, and the private
-server-side installation path:
+GitHub Release assets and the public npm registry are separate distribution
+channels. Check the registry before assuming an unpinned `npx` command matches
+the newest GitHub release:
+
+```powershell
+npm view harbor-desk version
+```
+
+At the v0.3.1 release, the registry still reported v0.2.0. Each generated
+release note records the registry version observed by the release workflow. If
+the versions differ, download the matching `harbor-desk-<version>.tgz` and
+`SHA256SUMS` assets, verify the checksum, and invoke the tarball explicitly. For
+v0.3.1:
+
+```powershell
+npx --yes --package ./harbor-desk-0.3.1.tgz harbor-desk --version
+```
+
+The registry-backed npm command can find the source, preview releases, and the
+private server-side installation path:
 
 ```powershell
 npx --yes harbor-desk
@@ -87,6 +105,11 @@ On a controlled Linux, Windows, or macOS Docker host, the explicit
 npm package, creates a unique server secret, builds the gateway, and starts it
 behind a loopback-only port. The command requires an empty target directory and
 will refuse to overwrite an existing install or use an occupied port.
+
+The examples below use the npm-published package. When the GitHub release is
+newer than the registry, replace the `npx --yes harbor-desk` prefix with
+`npx --yes --package ./harbor-desk-<version>.tgz harbor-desk` after verifying the
+downloaded tarball.
 
 ```bash
 npx --yes harbor-desk install-server \

@@ -5,6 +5,18 @@ All notable changes to this project are documented here. This project follows
 previews: the public API, gateway contracts, and packaging entry points can
 still change between minor versions.
 
+## [Unreleased]
+
+### Changed
+
+- Release artifact transfer now uses the current Node 24-based
+  `actions/upload-artifact@v7` and `actions/download-artifact@v8` actions.
+- Generated release notes now include the matching changelog section and report
+  whether the tagged package is actually available from npm. An attached GitHub
+  tarball is no longer described as though it were already npm-published.
+- The README documents how to compare GitHub and npm versions and how to invoke
+  a downloaded, checksum-verified release tarball explicitly.
+
 ## [0.3.1] - 2026-08-28
 
 ### Fixed
@@ -122,6 +134,7 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.3.1...HEAD
 [0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1
 [0.3.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.2.0
