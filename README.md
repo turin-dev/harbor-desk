@@ -232,6 +232,18 @@ pnpm --filter @harbor/desktop package:dir
 pnpm --filter @harbor/desktop package:win
 ```
 
+The Windows target is a branded, bilingual English/Korean assisted NSIS
+installer. It preserves the existing upgrade identity, lets the user choose a
+per-user or all-users install and destination, creates Start menu and desktop
+shortcuts, and launches the client only when the finish-page option remains
+selected. The installed application itself always runs with `asInvoker`; only
+an explicitly selected all-users installation may request elevation.
+
+Installer artwork is generated from
+`scripts/generate-installer-assets.py` and checked in under
+`apps/desktop/build/`. See `apps/desktop/build/README.md` before changing the
+fixed NSIS GUID or branding resources.
+
 ```bash
 pnpm --filter @harbor/desktop package:linux
 pnpm --filter @harbor/desktop package:mac

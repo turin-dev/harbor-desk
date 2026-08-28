@@ -396,3 +396,63 @@ test("generates versioned release notes from the changelog and npm state", async
   assert.match(published, /npm registry provides `v0\.3\.1`/);
   assert.match(published, /npx --yes harbor-desk@0\.3\.1 --version/);
 });
+
+test("ships a branded assisted Windows installer without changing upgrade identity", async () => {
+  const desktop = JSON.parse(
+    await readFile(
+      new URL("../apps/desktop/package.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const { nsis, win } = desktop.build;
+
+  assert.equal(desktop.build.directories.buildResources, "build");
+  assert.equal(win.icon, "build/icon.ico");
+  assert.equal(nsis.guid, "021ca03c-a935-5711-b332-258afc345f2a");
+  assert.equal(nsis.oneClick, false);
+  assert.equal(nsis.perMachine, false);
+  assert.equal(nsis.selectPerMachineByDefault, false);
+  assert.equal(nsis.allowElevation, true);
+  assert.equal(nsis.allowToChangeInstallationDirectory, true);
+  assert.equal(nsis.createDesktopShortcut, true);
+  assert.equal(nsis.createStartMenuShortcut, true);
+  assert.equal(nsis.shortcutName, "Harbor Desk");
+  assert.equal(nsis.runAfterFinish, true);
+  assert.deepEqual(nsis.installerLanguages, ["en_US", "ko_KR"]);
+  assert.equal(nsis.multiLanguageInstaller, true);
+  assert.equal(nsis.displayLanguageSelector, false);
+  assert.equal(nsis.installerIcon, "build/icon.ico");
+  assert.equal(nsis.uninstallerIcon, "build/icon.ico");
+  assert.equal(nsis.installerHeader, "build/installerHeader.bmp");
+  assert.equal(nsis.installerSidebar, "build/installerSidebar.bmp");
+  assert.equal(nsis.uninstallerSidebar, "build/uninstallerSidebar.bmp");
+  assert.match(nsis.uninstallDisplayName, /Harbor Desk.*Preview/);
+  assert.equal(nsis.warningsAsErrors, true);
+
+  const icon = await readFile(
+    new URL("../apps/desktop/build/icon.ico", import.meta.url),
+  );
+  assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
+  assert.ok(
+    icon.readUInt16LE(4) >= 7,
+    "icon must include Windows sizes down to 16px",
+  );
+
+  for (const [name, width, height] of [
+    ["installerHeader.bmp", 150, 57],
+    ["installerSidebar.bmp", 164, 314],
+    ["uninstallerSidebar.bmp", 164, 314],
+  ]) {
+    const bitmap = await readFile(
+      new URL(`../apps/desktop/build/${name}`, import.meta.url),
+    );
+    assert.equal(bitmap.subarray(0, 2).toString("ascii"), "BM");
+    assert.equal(bitmap.readInt32LE(18), width);
+    assert.equal(bitmap.readInt32LE(22), height);
+    assert.equal(
+      bitmap.readUInt16LE(28),
+      24,
+      `${name} must be a 24-bit NSIS bitmap`,
+    );
+  }
+});

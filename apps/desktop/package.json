@@ -51,7 +51,8 @@
     "productName": "Harbor Desk",
     "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist-electron/**/*",
@@ -62,6 +63,9 @@
       "main": "dist-electron/main/main.js"
     },
     "win": {
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "legalTrademarks": "Harbor Desk is independent of Docker, Inc.",
       "target": [
         {
           "target": "nsis",
@@ -114,11 +118,33 @@
       "artifactName": "Harbor-Desk-${version}-${arch}.${ext}"
     },
     "nsis": {
+      "guid": "021ca03c-a935-5711-b332-258afc345f2a",
       "oneClick": false,
       "perMachine": false,
+      "selectPerMachineByDefault": false,
+      "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "Harbor Desk",
+      "runAfterFinish": true,
+      "installerLanguages": [
+        "en_US",
+        "ko_KR"
+      ],
+      "multiLanguageInstaller": true,
+      "displayLanguageSelector": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "uninstallDisplayName": "Harbor Desk ${version} (Preview)",
+      "uninstallUrlHelp": "https://github.com/turin-dev/harbor-desk/issues",
+      "uninstallUrlInfoAbout": "https://github.com/turin-dev/harbor-desk",
+      "uninstallUrlReadme": "https://github.com/turin-dev/harbor-desk#readme",
+      "uninstallUrlUpdateInfo": "https://github.com/turin-dev/harbor-desk/releases",
+      "warningsAsErrors": true
     }
   }
 }

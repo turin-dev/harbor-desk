@@ -9,6 +9,14 @@ still change between minor versions.
 
 ### Changed
 
+- The Windows NSIS installer now uses Harbor Desk application, header, welcome,
+  finish, and uninstaller artwork; bilingual English/Korean assisted setup;
+  explicit shortcut, install-scope, destination, and finish behavior; and
+  branded Add/Remove Programs metadata.
+- The Windows application explicitly runs as the invoking user, while the
+  installer keeps optional elevation limited to a user-selected all-users
+  install. The NSIS GUID is pinned to the identity already shipped in v0.3.1 so
+  custom branding does not break upgrades.
 - Release artifact transfer now uses the current Node 24-based
   `actions/upload-artifact@v7` and `actions/download-artifact@v8` actions.
 - Generated release notes now include the matching changelog section and report
