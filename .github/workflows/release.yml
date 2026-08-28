@@ -194,9 +194,44 @@ jobs:
           retention-days: 14
           path: harbor-desk-*.tgz
 
+  publish-npm:
+    name: Publish npm package
+    needs: [verify, server]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: server-npm-package
+          path: npm-package
+      - name: Publish exact tarball if absent
+        working-directory: npm-package
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tarball="harbor-desk-${RELEASE_VERSION}.tgz"
+          test -f "$tarball"
+          existing="$(npm view "harbor-desk@${RELEASE_VERSION}" version --silent 2>/dev/null || true)"
+          if [ "$existing" = "$RELEASE_VERSION" ]; then exit 0; fi
+          if [ -n "$existing" ]; then exit 1; fi
+          npm publish "./$tarball" --access public
+      - name: Verify published version
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: test "$(npm view "harbor-desk@${RELEASE_VERSION}" version --silent)" = "$RELEASE_VERSION"
+
   publish:
     name: Publish GitHub release
-    needs: [verify, client, server]
+    needs: [verify, client, server, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
