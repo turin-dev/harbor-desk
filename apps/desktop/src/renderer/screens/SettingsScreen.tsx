@@ -48,7 +48,7 @@ const sections: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
   { id: "general", label: "General", icon: <SettingsIcon fontSize="small" /> },
   {
     id: "remote-hosts",
-    label: "Remote Hosts",
+    label: "Connections",
     icon: <Router fontSize="small" />,
   },
   {
@@ -92,7 +92,7 @@ export function SettingsScreen() {
       <PageHeader
         eyebrow="Configuration"
         title="Settings"
-        description="Client preferences and remote-native controls. Local VM, WSL, and Docker socket settings are intentionally not exposed."
+        description="Client preferences and automatic gateway controls. Docker sockets and local daemon settings are intentionally not exposed to the renderer."
       />
       <Stack
         direction={{ xs: "column", md: "row" }}
@@ -306,8 +306,8 @@ function RemoteHostSettings({
     <>
       <Heading
         icon={<Router />}
-        title="Remote Hosts"
-        description="Host visibility and connection metadata returned by the gateway."
+        title="Connections"
+        description="The desktop-managed gateway starts automatically and returns host visibility and connection metadata."
       />
       <Stack spacing={1}>
         {hosts.length ? (
@@ -345,7 +345,7 @@ function RemoteHostSettings({
           onClick={onOpenHosts}
           sx={{ alignSelf: "flex-start", mt: 0.7 }}
         >
-          Manage remote hosts
+          Manage connections
         </Button>
       </Stack>
     </>

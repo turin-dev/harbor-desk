@@ -32,6 +32,18 @@ contextBridge.exposeInMainWorld("harbor", {
   },
   openExternal: (url: string) =>
     ipcRenderer.invoke("app:open-external", url) as Promise<boolean>,
+  gateway: {
+    getRuntimeStatus: () =>
+      ipcRenderer.invoke("gateway:get-runtime-status") as Promise<{
+        state: "managed" | "external" | "disabled" | "unavailable";
+        url: string;
+        message: string;
+      }>,
+    getSessionToken: () =>
+      ipcRenderer.invoke("gateway:get-session-token") as Promise<
+        string | undefined
+      >,
+  },
   auth: {
     startLogin: (providerId: string) =>
       ipcRenderer.invoke("auth:start", providerId) as Promise<boolean>,

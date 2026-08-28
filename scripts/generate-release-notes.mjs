@@ -64,7 +64,7 @@ export function renderReleaseNotes({
 
   return `## Harbor Desk ${releaseTag} preview
 
-This preview contains the remote-first desktop client and the server-side Docker gateway installer.
+This preview contains the client-first desktop app with its automatic loopback policy gateway, plus the optional server-side Docker gateway installer.
 
 ### Changes
 
@@ -86,7 +86,7 @@ ${npmStatus}
 
 This remains a prerelease. Desktop binaries are currently **unsigned**; verify \`SHA256SUMS\` before installation and use a source build where signed artifacts are required.
 
-The desktop client remains remote-first and does not require a local Docker Engine. The server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
+The desktop starts its bundled gateway automatically on \`127.0.0.1\` and does not require a local Docker Engine. Docker access remains behind the gateway; the renderer never receives a Docker socket or direct Engine connection. The optional server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
 
 See [\`SECURITY.md\`](https://github.com/turin-dev/harbor-desk/blob/${releaseTag}/SECURITY.md) for the current security and dependency-advisory boundary.`;
 }

@@ -2,9 +2,14 @@
 
 ## Boundary
 
-The Windows Electron application is a control-plane client, not a Docker
-client. It has no Docker CLI, Docker SDK, Engine socket, Engine certificate, or
-direct Engine endpoint. It calls the gateway using HTTPS and WebSocket only.
+The Electron application uses a client-first lifecycle but is not itself a
+Docker client. Before creating the renderer window, the main process starts a
+Fastify gateway on exact loopback (`127.0.0.1`) unless an explicit external
+gateway is configured or automatic startup is disabled. The renderer has no
+Docker CLI, Docker SDK, Engine socket, or direct Engine connection. It can
+submit endpoint and mTLS material during registration, but the gateway owns
+their storage and use and never returns them in host responses. The renderer
+calls the gateway using HTTP(S) and WebSocket only.
 
 The gateway is the policy boundary. It authenticates the user, checks the
 host-level grant, validates the request, writes audit metadata, and invokes a
@@ -12,6 +17,13 @@ connector for the selected host. The gateway must not expose a generic
 `/proxy?url=` route or host-shell execution endpoint. The current in-memory
 stores are a development slice; PostgreSQL/Redis-backed stores are required
 before a production deployment.
+
+The managed gateway receives a random token for each desktop launch. Protected
+requests from the renderer must carry that token in
+`x-harbor-desktop-token`, including packaged `file://` requests whose CORS
+origin is `null`. The main process keeps the token and exposes a narrow preload
+getter; diagnostics must never include it. This is a loopback channel guard,
+not a replacement for user authentication or process isolation.
 
 ## Host connection
 
@@ -21,8 +33,9 @@ certificates and private keys are encrypted by the configured secret store and
 are never serialized into the public `Host` response.
 
 Development can use a loopback HTTP endpoint or a Windows `npipe:` endpoint
-from the gateway process. This is a server-side development convenience only.
-The desktop renderer never receives or interprets the value.
+from the gateway process. The desktop-managed gateway may read
+`DEV_ENGINE_HOST`, but the renderer never receives or interprets that value.
+No automatic local-Engine fallback exists and Harbor Desk never starts Docker.
 
 The connector probes `/version` and `/info`, records the negotiated API and
 capability matrix, and maps upstream errors to stable gateway error codes.
@@ -59,6 +72,10 @@ access token in their URL.
   closed instead of starting with the in-memory fallback.
 
 ## Failure policy
+
+If the managed gateway cannot bind or initialize, the renderer shell still
+loads and reports an unavailable runtime in Troubleshoot. It must not replace
+the full interface with a blank or gateway-error-only page.
 
 If a host cannot be reached, the UI may display the last known host status but
 must not execute mutations. A failed WebSocket resumes from its cursor when

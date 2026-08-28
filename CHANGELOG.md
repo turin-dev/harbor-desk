@@ -7,6 +7,28 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-28
+
+### Added
+
+- The desktop app now starts its Fastify gateway automatically on the default
+  `http://127.0.0.1:4310` loopback endpoint before loading the interface and
+  closes the managed runtime when the app quits.
+- Each managed gateway receives a random per-launch desktop session token.
+  Development authentication fails closed without that token even though the
+  packaged `file://` renderer origin is allowed through CORS.
+
+### Changed
+
+- Harbor Desk now follows a client-first startup flow: users launch one desktop
+  app and then add Docker Engine connections without running a separate gateway
+  command. Explicit non-loopback gateway configurations and
+  `HARBOR_DISABLE_MANAGED_GATEWAY=1` continue to use an external gateway instead
+  of silently starting another service.
+- Troubleshoot and About diagnostics now report whether the gateway was managed
+  by the desktop, supplied externally, disabled, or unavailable without exposing
+  its per-launch token.
+
 ### Fixed
 
 - Release checksum generation now excludes `SHA256SUMS` itself, preventing the
@@ -156,7 +178,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.4.0
 [0.3.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.2
 [0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1
 [0.3.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.0

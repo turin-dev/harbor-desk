@@ -39,6 +39,61 @@ test("exposes health, current user, and typed empty host responses", async (t) =
   assert.deepEqual(hosts.json().data, []);
 });
 
+test("protects a desktop-managed loopback gateway with its per-launch token", async (t) => {
+  const desktopSessionToken = "desktop-session-token-1234567890";
+  const harbor = await buildApp({
+    ...testConfig,
+    allowedOrigins: ["null"],
+    desktopSessionToken,
+  });
+  t.after(async () => harbor.app.close());
+
+  const missing = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/me",
+    headers: { origin: "null" },
+  });
+  assert.equal(missing.statusCode, 401);
+
+  const wrong = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/me",
+    headers: {
+      origin: "null",
+      "x-harbor-desktop-token": "wrong-token",
+    },
+  });
+  assert.equal(wrong.statusCode, 401);
+
+  const preflight = await harbor.app.inject({
+    method: "OPTIONS",
+    url: "/api/v1/me",
+    headers: {
+      origin: "null",
+      "access-control-request-method": "GET",
+      "access-control-request-headers": "x-harbor-desktop-token",
+    },
+  });
+  assert.equal(preflight.statusCode, 204);
+  assert.equal(preflight.headers["access-control-allow-origin"], "null");
+  assert.match(
+    String(preflight.headers["access-control-allow-headers"]),
+    /x-harbor-desktop-token/i,
+  );
+
+  const allowed = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/me",
+    headers: {
+      origin: "null",
+      "x-harbor-desktop-token": desktopSessionToken,
+    },
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.headers["access-control-allow-origin"], "null");
+  assert.equal(allowed.json().data.role, "admin");
+});
+
 test("rejects malformed host registration input with a validation error", async (t) => {
   const harbor = await buildApp(testConfig);
   t.after(async () => harbor.app.close());

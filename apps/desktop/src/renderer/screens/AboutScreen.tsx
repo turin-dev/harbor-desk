@@ -10,11 +10,16 @@ import {
   Typography,
 } from "@mui/material";
 import { PageHeader } from "../components/PageHeader.js";
-import { useGatewayHealth, useHosts } from "../state/queries.js";
+import {
+  useDesktopGatewayRuntime,
+  useGatewayHealth,
+  useHosts,
+} from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
 
 export function AboutScreen() {
   const health = useGatewayHealth();
+  const runtime = useDesktopGatewayRuntime();
   const { data: hosts = [] } = useHosts();
   const showToast = useUiStore((state) => state.showToast);
   const [copied, setCopied] = useState(false);
@@ -25,6 +30,7 @@ export function AboutScreen() {
       platform: window.harbor?.platform ?? "browser",
       gateway: health.data?.version ?? "unavailable",
       gatewayStatus: health.data?.status ?? "unavailable",
+      gatewayRuntime: runtime.data?.state ?? "unavailable",
       hostCount: hosts.length,
       hostStatuses: hosts.map((host) => ({ id: host.id, status: host.status })),
     },
@@ -52,7 +58,7 @@ export function AboutScreen() {
       <PageHeader
         eyebrow="Harbor Desk"
         title="About"
-        description="An independent Apache-2.0 remote operations client. Docker Engine access stays on the server gateway."
+        description="A client-first Apache-2.0 operations app that automatically starts its loopback gateway."
       />
       <Stack spacing={2}>
         <Paper sx={{ p: 3 }}>
@@ -87,6 +93,10 @@ export function AboutScreen() {
               label="Gateway"
               value={health.data?.version ?? "Unavailable"}
             />
+            <VersionRow
+              label="Gateway runtime"
+              value={runtime.data?.state ?? "Unavailable"}
+            />
             <VersionRow label="Registered hosts" value={String(hosts.length)} />
           </Stack>
         </Paper>
@@ -96,16 +106,16 @@ export function AboutScreen() {
             <Security color="primary" />
             <Box>
               <Typography sx={{ fontWeight: 700 }}>
-                Remote-first boundary
+                Client-first gateway boundary
               </Typography>
               <Typography
                 color="text.secondary"
                 sx={{ mt: 0.45, maxWidth: 720 }}
               >
-                This client intentionally has no Docker CLI, Docker socket,
-                Engine certificate, or local daemon integration. The selected
-                host is a server-side policy reference, not a local connection
-                target.
+                Harbor Desk starts a token-protected gateway on 127.0.0.1 before
+                opening the interface. The renderer still has no Docker CLI,
+                Docker socket, or direct daemon access; stored Engine
+                credentials and selected hosts remain gateway policy data.
               </Typography>
             </Box>
           </Stack>

@@ -78,7 +78,7 @@ export function TerminalDrawer({ host }: { host?: Host }) {
       );
       const ticket = await gateway.getWebSocketTicket();
       const socket = new WebSocket(
-        getTerminalWebSocketUrl(session.id, ticket.ticket),
+        await getTerminalWebSocketUrl(session.id, ticket.ticket),
       );
       socketRef.current = socket;
       socket.onmessage = (message) => {

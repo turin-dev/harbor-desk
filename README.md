@@ -6,19 +6,22 @@
 [![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Release](https://img.shields.io/github/v/release/turin-dev/harbor-desk?include_prereleases&sort=semver)](https://github.com/turin-dev/harbor-desk/releases)
 
-Harbor Desk is an open-source, remote-first container operations desktop client.
-It provides a Docker Desktop-shaped workflow while keeping every Docker Engine
-connection on the server side. The Windows client talks to a Fastify gateway
-over HTTPS and WebSocket; it does not require Docker Desktop, Docker CLI, or a
-local Docker socket.
+Harbor Desk is an open-source, client-first desktop app for operating remote
+Docker Engines. Launching the desktop app starts its Fastify policy gateway
+automatically on `127.0.0.1` before the interface loads; users do not need to
+start a second program or gateway command. Every Docker Engine connection still
+stays behind that gateway, so the renderer does not require Docker Desktop,
+Docker CLI, or a local Docker socket.
 
 > **Project status:** Harbor Desk is an independently implemented, working
-> vertical slice for remote container operations. It is not yet a turnkey
-> production control plane. The production dependencies and hardening still
-> called out below are deliberate release boundaries, not hidden fallbacks.
+> vertical slice for remote container operations. Its automatic gateway is a
+> desktop-managed preview runtime, not a turnkey production control plane. The
+> production dependencies and hardening still called out below are deliberate
+> release boundaries, not hidden fallbacks.
 
 Harbor Desk uses a familiar container-management workflow, but it does not
-include Docker Desktop source code, assets, or a client-side Engine integration.
+include Docker Desktop source code, assets, or direct renderer-to-Engine
+integration.
 
 ## Contents
 
@@ -38,7 +41,10 @@ include Docker Desktop source code, assets, or a client-side Engine integration.
 The repository currently contains a working first vertical slice:
 
 - Electron + React + TypeScript + MUI desktop shell.
-- Fastify gateway with typed `/api/v1` responses.
+- A desktop-managed Fastify gateway that starts before the shell, binds only to
+  `127.0.0.1`, and exposes typed `/api/v1` responses.
+- A random per-launch desktop session token that protects managed-gateway API
+  calls, including requests from the packaged renderer's `file://` origin.
 - Remote host registry and development Engine connector.
 - Host-aware container list, live filtering, run/create+start, lifecycle
   actions, action menu, inspect/logs/stats, one-shot exec terminal sessions,
@@ -61,7 +67,9 @@ PostgreSQL/Redis persistence, Vault/KMS secret storage, BullMQ processors for
 BuildKit/Compose/export/scan, host-grant persistence, and the remaining
 Kubernetes/registry/extension/AI adapters are intentionally still separate
 implementation work. Their screens show an explicit unavailable state rather
-than fixture data or fake success.
+than fixture data or fake success. The desktop-managed preview gateway currently
+keeps host registrations, encrypted development secrets, and operations in
+memory, so they reset when the app fully quits.
 
 ## npx bootstrap
 
@@ -73,14 +81,13 @@ the newest GitHub release:
 npm view harbor-desk version
 ```
 
-At the v0.3.1 release, the registry still reported v0.2.0. Each generated
-release note records the registry version observed by the release workflow. If
-the versions differ, download the matching `harbor-desk-<version>.tgz` and
-`SHA256SUMS` assets, verify the checksum, and invoke the tarball explicitly. For
-v0.3.1:
+Each generated release note records the registry version observed by the
+release workflow. If the versions differ, download the matching
+`harbor-desk-<version>.tgz` and `SHA256SUMS` assets, verify the checksum, and
+invoke the tarball explicitly:
 
 ```powershell
-npx --yes --package ./harbor-desk-0.3.1.tgz harbor-desk --version
+npx --yes --package ./harbor-desk-<version>.tgz harbor-desk --version
 ```
 
 The registry-backed npm command can find the source, preview releases, and the
@@ -98,13 +105,15 @@ safe entry point into the open-source preview while the desktop installer
 remains unsigned and the production control-plane dependencies are still
 incomplete.
 
-### Install a server-side preview gateway
+### Optional dedicated server gateway
 
-On a controlled Linux, Windows, or macOS Docker host, the explicit
-`install-server` command copies the gateway source payload from the published
-npm package, creates a unique server secret, builds the gateway, and starts it
-behind a loopback-only port. The command requires an empty target directory and
-will refuse to overwrite an existing install or use an occupied port.
+The normal desktop flow does not require `install-server`: the client starts its
+own loopback gateway automatically. On a controlled Linux, Windows, or macOS
+Docker host, the explicit `install-server` command remains available for a
+dedicated external preview gateway. It copies the gateway source payload from
+the published npm package, creates a unique server secret, builds the gateway,
+and starts it behind a loopback-only port. The command requires an empty target
+directory and refuses to overwrite an existing install or use an occupied port.
 
 The examples below use the npm-published package. When the GitHub release is
 newer than the registry, replace the `npx --yes harbor-desk` prefix with
@@ -147,15 +156,16 @@ npx --yes harbor-desk install-server --directory C:\harbor-desk-preview --port 4
 
 ## Supported platforms
 
-| Component                         | Linux                           | Windows        | macOS                    |
-| --------------------------------- | ------------------------------- | -------------- | ------------------------ |
-| Server gateway (`install-server`) | Docker Engine or Docker Desktop | Docker Desktop | Docker Desktop           |
-| Desktop client                    | AppImage, deb                   | NSIS installer | dmg, zip (x64 and arm64) |
+| Component                                  | Linux                           | Windows        | macOS                    |
+| ------------------------------------------ | ------------------------------- | -------------- | ------------------------ |
+| Desktop client + managed loopback gateway  | AppImage, deb                   | NSIS installer | dmg, zip (x64 and arm64) |
+| Optional server gateway (`install-server`) | Docker Engine or Docker Desktop | Docker Desktop | Docker Desktop           |
 
-The server gateway runs as a container on any host with Docker Compose, so the
-same command works against a native Linux Engine and against Docker Desktop. The
-client is a control-plane application and never requires a local Docker Engine on
-any platform.
+The managed gateway is bundled with the desktop client and does not start or
+install Docker. The optional server gateway runs as a container on any host with
+Docker Compose, so the same command works against a native Linux Engine and
+against Docker Desktop. The client never requires a local Docker Engine on any
+platform.
 
 Release artifacts are built by the `Release` workflow on `ubuntu-latest`,
 `windows-latest`, and `macos-latest`. They are **unsigned** unless the build
@@ -165,16 +175,27 @@ will warn. Do not treat an unsigned artifact as a trusted production release.
 ## Architecture and trust boundary
 
 ```text
-Electron renderer  -- HTTPS / WebSocket -->  Fastify gateway  -->  Docker Engine
-      no Docker SDK                            policy boundary       selected host
-      no Docker socket                         server-side connector
+Electron renderer -- HTTP / WebSocket --> automatic loopback gateway --> Docker Engine
+   no Docker SDK       per-launch token       Fastify policy boundary    selected host
+   no Docker socket    127.0.0.1 only         connector owns credentials
 ```
 
-The renderer is a control-plane client only. It never receives an Engine
-endpoint, Engine certificate, Docker socket, or host credential. The gateway
-authenticates a request, applies server-side host authorization, records audit
-metadata, and makes the selected Engine call. A host selector in the desktop
-application is not a security boundary.
+The Electron main process starts the default gateway before creating the
+window. The managed gateway accepts API calls only with a random token generated
+for that app launch; the preload exposes only a narrow getter so the renderer can
+attach the token to gateway requests. The token is not written to diagnostics or
+logs. Closing the window to the tray leaves the app and gateway running; choosing
+**Quit** stops both.
+
+The renderer is a control-plane client only. It never receives a Docker socket
+or talks directly to an Engine. The gateway authenticates each request, applies
+host authorization, records audit metadata, and makes the selected Engine call.
+A host selector in the desktop application is not a security boundary.
+
+Automatic startup is deliberately limited to a plain-HTTP root URL on exactly
+`127.0.0.1`. An explicit HTTPS, LAN, or remote `VITE_GATEWAY_URL` remains an
+external gateway. Set `HARBOR_DISABLE_MANAGED_GATEWAY=1` to disable automatic
+startup when developing against an already running loopback gateway.
 
 ## Getting started
 
@@ -198,11 +219,19 @@ services.
 bash setup.sh
 ```
 
-The equivalent manual workflow is:
+For the full Electron development flow, install dependencies and launch the
+desktop. Electron starts the managed gateway automatically:
 
 ```powershell
 pnpm install
 Copy-Item .env.example .env
+pnpm --filter @harbor/desktop dev:electron
+```
+
+Running only the Vite renderer in a normal browser has no Electron preload, so
+that browser-only workflow still needs a separately started development gateway:
+
+```powershell
 pnpm --filter @harbor/gateway dev
 pnpm --filter @harbor/desktop dev
 ```
@@ -223,9 +252,10 @@ processes must be checked in the same run. The default check interval is
 30 seconds and can be shortened only for a local smoke test with
 SOAK_INTERVAL_MS.
 
-To create a desktop client build after configuring the gateway URL, run the
-command for the platform you are building on. electron-builder builds each
-target on its own operating system, so run these on the matching host:
+To create a desktop build, run the command for the platform you are building
+on. The default package needs no separate gateway configuration because it
+includes the managed loopback runtime. electron-builder builds each target on
+its own operating system, so run these on the matching host:
 
 ```powershell
 pnpm --filter @harbor/desktop package:dir
@@ -253,10 +283,11 @@ The installer is unsigned unless the build environment supplies a signing
 certificate through the electron-builder signing configuration. Do not publish
 an unsigned artifact as a trusted production release.
 
-For a local-only development connector, set `DEV_ENGINE_HOST` to a protected
-development Engine endpoint. Do not expose an unauthenticated Docker daemon in
-production. The desktop client itself never reads this variable and never
-connects to Docker.
+For a development connector, set `DEV_ENGINE_HOST` to a protected Engine
+endpoint. The gateway process—including the desktop-managed gateway—reads this
+variable; the renderer does not. Do not expose an unauthenticated Docker daemon
+in production, and do not point the managed preview gateway at an untrusted
+endpoint.
 
 ## Server-local Engine overlay
 

@@ -1,7 +1,7 @@
 # Contributing to Harbor Desk
 
 Thank you for improving Harbor Desk. This repository is an Apache-2.0 project
-for a remote-first container operations desktop client. Contributions should
+for a client-first remote container operations desktop app. Contributions should
 make the implemented boundary clearer or stronger; they must not paper over
 unfinished production work with fixture data or success-looking UI.
 
@@ -60,6 +60,9 @@ clearly what you did and did not exercise.
   Docker socket, filesystem-secret, or direct Engine access.
 - All Engine requests stay behind the gateway, where authentication,
   authorization, host grants, request validation, and auditing are enforced.
+- The desktop-managed gateway must remain loopback-only, and protected requests
+  must fail closed without its random per-launch token. Never log or persist
+  that token.
 - Do not add a generic URL proxy, arbitrary host-shell endpoint, or a way to
   forward raw Engine credentials to a desktop client.
 - Treat Docker socket access as privileged. A read-only mount does not make

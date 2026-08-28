@@ -20,6 +20,11 @@ export interface GatewayConfig {
   gatewayVersion: string;
   allowedOrigins: string[];
   authMode: "dev" | "oidc";
+  /**
+   * Per-launch loopback channel token issued by Electron main. When present,
+   * development auth fails closed without this header.
+   */
+  desktopSessionToken?: string;
   oidcProviders: OidcProviderConfig[];
   engineEndpointAllowlist: string[];
   devEngineHost?: string;

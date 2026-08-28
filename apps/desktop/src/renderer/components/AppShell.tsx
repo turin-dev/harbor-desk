@@ -46,7 +46,11 @@ import {
 } from "@mui/material";
 import type { Host, HostStatus } from "@harbor/contracts";
 import { useRemoteEventStream } from "../state/events.js";
-import { useCurrentUser, useHosts } from "../state/queries.js";
+import {
+  useCurrentUser,
+  useDesktopGatewayRuntime,
+  useHosts,
+} from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
 import { shouldShowInitialGatewayLoading } from "../bootstrap-state.js";
 import { NotificationCenter } from "./NotificationCenter.js";
@@ -197,16 +201,28 @@ function Sidebar({
   );
 }
 
-function RemoteStatusBar({
+function ClientStatusBar({
   host,
+  gatewayUnavailable,
+  gatewayMode,
   terminalOpen,
   onToggleTerminal,
 }: {
   host?: Host;
+  gatewayUnavailable: boolean;
+  gatewayMode?: "managed" | "external" | "disabled" | "unavailable";
   terminalOpen: boolean;
   onToggleTerminal: () => void;
 }) {
   const online = host?.status === "online";
+  const modeLabel =
+    gatewayMode === "external"
+      ? "External gateway"
+      : gatewayMode === "disabled"
+        ? "Gateway auto-start off"
+        : gatewayUnavailable
+          ? "Gateway unavailable"
+          : "Automatic gateway";
   return (
     <Box
       component="footer"
@@ -224,19 +240,28 @@ function RemoteStatusBar({
       }}
     >
       <CloudQueue
-        sx={{ fontSize: 15, color: online ? "#16bf9d" : "var(--dd-nav-muted)" }}
+        sx={{
+          fontSize: 15,
+          color: gatewayUnavailable
+            ? "error.main"
+            : online
+              ? "#16bf9d"
+              : "var(--dd-nav-muted)",
+        }}
       />
       <Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>
-        {host
-          ? `${host.displayName} · ${statusLabel(host.status)}`
-          : "No remote engine connected"}
+        {gatewayUnavailable
+          ? "Gateway unavailable"
+          : host
+            ? `${host.displayName} · ${statusLabel(host.status)}`
+            : "Gateway ready · No Engine connected"}
       </Typography>
       <Divider orientation="vertical" flexItem sx={{ my: 0.75 }} />
       <Typography
         color="text.secondary"
         sx={{ fontSize: 12, whiteSpace: "nowrap" }}
       >
-        Remote-first mode
+        Client-first · {modeLabel}
       </Typography>
       <Box sx={{ flex: 1 }} />
       <Button
@@ -275,6 +300,7 @@ export function AppShell() {
     isError: hostsError,
     isFetched: hostsFetched,
   } = useHosts();
+  const { data: gatewayRuntime } = useDesktopGatewayRuntime();
   const { data: user } = useCurrentUser();
   const showHostsLoading = shouldShowInitialGatewayLoading({
     isLoading: hostsLoading,
@@ -412,10 +438,10 @@ export function AppShell() {
             >
               <NotificationCenter />
             </Box>
-            <Tooltip title="Remote host settings">
+            <Tooltip title="Connections">
               <IconButton
                 onClick={() => navigateTo("/hosts")}
-                aria-label="Remote host settings"
+                aria-label="Connection settings"
                 sx={{ color: "inherit" }}
               >
                 <Tune fontSize="small" />
@@ -430,7 +456,7 @@ export function AppShell() {
                 <Settings fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Remote hosts">
+            <Tooltip title="Connections">
               <IconButton
                 onClick={() => navigateTo("/hosts")}
                 aria-label="Choose remote host"
@@ -578,7 +604,11 @@ export function AppShell() {
                 sx={{ fontSize: 13 }}
               >
                 {hostsError
-                  ? "Gateway is unavailable. Check the remote server connection."
+                  ? gatewayRuntime?.state === "external"
+                    ? "The configured external gateway is unavailable. Open Troubleshoot for connection details."
+                    : gatewayRuntime?.state === "disabled"
+                      ? "The gateway is unavailable while automatic startup is disabled. Open Troubleshoot for details."
+                      : "The automatic gateway is unavailable. Open Troubleshoot for startup details."
                   : selectedHost
                     ? `${selectedHost.displayName}: ${statusLabel(selectedHost.status)}. Cached data is read-only.`
                     : "No remote host is selected."}
@@ -588,7 +618,9 @@ export function AppShell() {
           {showHostsLoading && !hosts.length ? (
             <Box sx={{ px: 4, py: 2.5 }}>
               <Typography color="text.secondary">
-                Connecting to the Harbor Desk gateway…
+                {gatewayRuntime?.state === "external"
+                  ? "Connecting to the configured gateway…"
+                  : "Starting the Harbor Desk gateway…"}
               </Typography>
             </Box>
           ) : (
@@ -599,8 +631,10 @@ export function AppShell() {
         </Box>
       </Box>
 
-      <RemoteStatusBar
+      <ClientStatusBar
         host={selectedHost}
+        gatewayUnavailable={hostsError}
+        gatewayMode={gatewayRuntime?.state}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
       />
