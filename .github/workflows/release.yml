@@ -293,7 +293,7 @@ jobs:
               cat "${existing_error}" >&2
               exit 1
             fi
-            npm publish "${tarball}" --access public --tag preview --provenance
+            npm publish "./${tarball}" --access public --tag preview --provenance
           fi
 
       - name: Verify npm publication and dist-tags
