@@ -7,6 +7,11 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release checksum manifests now use portable asset basenames instead of the
+  CI-only `release-assets/` staging path.
+
 ## [0.4.0] - 2026-08-28
 
 ### Added
