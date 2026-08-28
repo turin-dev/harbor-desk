@@ -27,6 +27,14 @@ const rendererIndexUrl = new URL(
   "../apps/desktop/dist/renderer/index.html",
   import.meta.url,
 );
+const desktopManifestUrl = new URL(
+  "../apps/desktop/package.json",
+  import.meta.url,
+);
+const gatewayManifestUrl = new URL(
+  "../apps/gateway/package.json",
+  import.meta.url,
+);
 const packageRoot = resolve(dirname(cliPath), "..");
 
 function runCli(...arguments_) {
@@ -258,12 +266,7 @@ test("keeps the desktop artifact version aligned with the release version", asyn
   // electron-builder names artifacts from the desktop manifest. If it drifts from
   // the published release version, a v0.3.0 release ships "Harbor-Desk-0.1.0-Setup.exe".
   const root = JSON.parse(await readFile(manifestUrl, "utf8"));
-  const desktop = JSON.parse(
-    await readFile(
-      new URL("../apps/desktop/package.json", import.meta.url),
-      "utf8",
-    ),
-  );
+  const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
 
   assert.equal(
     desktop.version,
@@ -277,6 +280,45 @@ test("keeps the desktop artifact version aligned with the release version", asyn
       `electron-builder must define a ${target} target so releases cover every client platform`,
     );
   }
+});
+
+test("packages and initializes the desktop-managed gateway before the renderer", async () => {
+  const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
+  const gateway = JSON.parse(await readFile(gatewayManifestUrl, "utf8"));
+  const main = await readFile(
+    new URL("../apps/desktop/src/main/main.ts", import.meta.url),
+    "utf8",
+  );
+  const managedGateway = await readFile(
+    new URL("../apps/desktop/src/main/managed-gateway.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(desktop.dependencies?.["@harbor/gateway"], "workspace:*");
+  assert.equal(desktop.dependencies?.["@harbor/config"], "workspace:*");
+  assert.equal(gateway.exports?.["./app"]?.import, "./dist/app.js");
+  assert.match(managedGateway, /from "@harbor\/gateway\/app"/);
+  assert.match(managedGateway, /hostname !== "127\.0\.0\.1"/);
+  assert.match(managedGateway, /randomBytes\(32\)\.toString\("base64url"\)/);
+
+  const initializeIndex = main.indexOf("await initializeManagedGateway()");
+  const createWindowIndex = main.indexOf(
+    "await createWindow()",
+    initializeIndex,
+  );
+  assert.ok(
+    initializeIndex >= 0,
+    "Electron must initialize the managed gateway",
+  );
+  assert.ok(
+    createWindowIndex > initializeIndex,
+    "the managed gateway must initialize before Electron creates the renderer window",
+  );
+  assert.match(
+    main,
+    /app\.on\("will-quit",[\s\S]*runtime\s*\.close\(\)/,
+    "Electron must close the managed gateway after renderer windows begin shutting down",
+  );
 });
 
 test("keeps packaged renderer assets relative to the file URL", async () => {
@@ -312,6 +354,7 @@ test("packaging scripts build the workspace packages the renderer imports", asyn
   // renderer fails with 'Failed to resolve entry for package "@harbor/ui"' on a clean
   // checkout. The root scripts must build dependencies first via the "..." selector.
   const root = JSON.parse(await readFile(manifestUrl, "utf8"));
+  const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
   const workflow = await readFile(
     new URL("../.github/workflows/release.yml", import.meta.url),
     "utf8",
@@ -327,6 +370,12 @@ test("packaging scripts build the workspace packages the renderer imports", asyn
       `${script} must build workspace dependencies before packaging`,
     );
   }
+
+  assert.match(
+    desktop.scripts?.["dev:electron"] ?? "",
+    /@harbor\/desktop\^\.\.\./,
+    "the clean-checkout Electron development command must build gateway and UI workspace dependencies first",
+  );
 
   // The release workflow must call the root scripts, not the desktop-only ones.
   assert.match(workflow, /run: pnpm run \$\{\{ matrix\.script \}\}/);
@@ -385,6 +434,7 @@ test("generates versioned release notes from the changelog and npm state", async
     npmLatestVersion: "0.2.0",
   });
   assert.match(unpublished, /#### Fixed/);
+  assert.match(unpublished, /client-first desktop app/);
   assert.match(unpublished, /latest version was `v0\.2\.0`/);
   assert.match(unpublished, /checksums for every distributable asset/);
   assert.doesNotMatch(unpublished, /checksums for every attached asset/);
@@ -405,12 +455,7 @@ test("generates versioned release notes from the changelog and npm state", async
 });
 
 test("ships a branded assisted Windows installer without changing upgrade identity", async () => {
-  const desktop = JSON.parse(
-    await readFile(
-      new URL("../apps/desktop/package.json", import.meta.url),
-      "utf8",
-    ),
-  );
+  const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
   const { nsis, win } = desktop.build;
 
   assert.equal(desktop.build.directories.buildResources, "build");

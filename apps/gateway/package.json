@@ -5,6 +5,12 @@
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/server.js",
+  "exports": {
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",

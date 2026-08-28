@@ -56,9 +56,13 @@ export function useRemoteEventStream(hostId?: string): void {
       connecting = false;
       if (closed) return;
 
-      const nextSocket = new WebSocket(
-        getGatewayWebSocketUrl(hostId, cursor, ticket?.ticket),
+      const socketUrl = await getGatewayWebSocketUrl(
+        hostId,
+        cursor,
+        ticket?.ticket,
       );
+      if (closed) return;
+      const nextSocket = new WebSocket(socketUrl);
       socket = nextSocket;
       nextSocket.onopen = () => {
         retryDelay = 1_000;

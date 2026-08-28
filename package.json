@@ -1,13 +1,14 @@
 {
   "name": "harbor-desk",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": false,
-  "description": "A remote Docker operations desktop client with a server-side engine gateway.",
+  "description": "A client-first Docker operations desktop app with an automatic policy gateway.",
   "license": "Apache-2.0",
   "keywords": [
     "docker",
     "containers",
     "remote",
+    "client-first",
     "electron",
     "gateway",
     "devops"

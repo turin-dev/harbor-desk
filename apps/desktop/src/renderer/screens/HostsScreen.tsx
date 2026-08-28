@@ -78,8 +78,8 @@ export function HostsScreen() {
     <Box sx={{ px: 4, py: 2 }}>
       <PageHeader
         eyebrow="Connections"
-        title="Remote hosts"
-        description="The client stores only the selected host ID. Engine endpoints and mTLS keys remain on the gateway."
+        title="Docker Engine connections"
+        description="The gateway starts automatically with the client. After registration, Engine endpoints and mTLS keys are stored and used only by that policy boundary."
         actions={
           <>
             <Button
@@ -94,7 +94,7 @@ export function HostsScreen() {
               startIcon={<Add />}
               onClick={() => setOpen(true)}
             >
-              Add host
+              Add remote host
             </Button>
           </>
         }
@@ -105,11 +105,11 @@ export function HostsScreen() {
             <Dns color="primary" />
             <Box>
               <Typography sx={{ fontWeight: 650 }}>
-                No hosts registered
+                Gateway ready · No Engine connected
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 0.35 }}>
-                Add an HTTPS Engine endpoint with server-side mTLS material to
-                begin.
+                Add an HTTPS Engine endpoint with server-side mTLS material. No
+                separate gateway startup command is required.
               </Typography>
             </Box>
           </Stack>

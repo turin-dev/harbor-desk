@@ -15,6 +15,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  startManagedGateway,
+  type ManagedGatewayRuntime,
+  type ManagedGatewayStatus,
+} from "./managed-gateway.js";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 const gatewayUrl = (
@@ -36,6 +41,13 @@ let mainWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let accessToken: string | undefined;
 let isQuitting = false;
+let gatewayShutdownStarted = false;
+let managedGateway: ManagedGatewayRuntime | undefined;
+let managedGatewayStatus: ManagedGatewayStatus = {
+  state: "unavailable",
+  url: gatewayUrl,
+  message: "The automatic gateway has not started yet.",
+};
 let pendingLogin:
   | { providerId: string; state: string; nonce: string; verifier: string }
   | undefined;
@@ -43,6 +55,35 @@ let pendingLogin:
 interface StoredRefreshToken {
   providerId: string;
   refreshToken: string;
+}
+
+function desktopGatewayHeaders(): Record<string, string> {
+  return managedGateway?.sessionToken
+    ? { "x-harbor-desktop-token": managedGateway.sessionToken }
+    : {};
+}
+
+async function initializeManagedGateway(): Promise<void> {
+  try {
+    managedGateway = await startManagedGateway({
+      gatewayUrl,
+      gatewayVersion: app.getVersion(),
+      disabled: process.env.HARBOR_DISABLE_MANAGED_GATEWAY === "1",
+    });
+    managedGatewayStatus = managedGateway.status;
+    console.info("[gateway] desktop runtime", managedGatewayStatus);
+  } catch (error) {
+    managedGateway = undefined;
+    managedGatewayStatus = {
+      state: "unavailable",
+      url: gatewayUrl,
+      message:
+        error instanceof Error
+          ? error.message
+          : "The automatic gateway could not start.",
+    };
+    console.error("[gateway] automatic startup failed", managedGatewayStatus);
+  }
 }
 
 function secureTokenPath(key: string): string {
@@ -79,7 +120,11 @@ async function exchangeAuthToken(input: {
 }): Promise<{ accessToken: string; refreshToken?: string }> {
   const response = await fetch(`${gatewayUrl}/api/v1/auth/token`, {
     method: "POST",
-    headers: { accept: "application/json", "content-type": "application/json" },
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...desktopGatewayHeaders(),
+    },
     body: JSON.stringify({
       ...input,
       redirectUri: "harbor-desk://auth/callback",
@@ -279,19 +324,26 @@ async function createWindow(): Promise<void> {
   });
   attachRendererDiagnostics(mainWindow);
 
-  if (!app.isPackaged) {
-    mainWindow.webContents.session.webRequest.onHeadersReceived(
-      (details, callback) => {
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    (details, callback) => {
+      if (details.resourceType !== "mainFrame") {
         callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            "Content-Security-Policy": [
-              `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${gatewayOrigin} ${gatewayWebSocketOrigin} ${devOrigin} ${devWebSocketOrigin}; font-src 'self' data:;`,
-            ],
-          },
+          responseHeaders: details.responseHeaders,
         });
-      },
-    );
+        return;
+      }
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${gatewayOrigin} ${gatewayWebSocketOrigin} ${devOrigin} ${devWebSocketOrigin}; font-src 'self' data:;`,
+          ],
+        },
+      });
+    },
+  );
+
+  if (!app.isPackaged) {
     await mainWindow.loadURL(devServerUrl);
     if (process.env.OPEN_DEVTOOLS === "1")
       mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -417,6 +469,14 @@ function registerIpc(): void {
     notifyAuthChanged();
     return true;
   });
+
+  ipcMain.handle("gateway:get-runtime-status", () => ({
+    ...managedGatewayStatus,
+  }));
+  ipcMain.handle(
+    "gateway:get-session-token",
+    () => managedGateway?.sessionToken,
+  );
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -436,6 +496,7 @@ if (!gotLock) {
   });
   app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("harbor-desk");
+    await initializeManagedGateway();
     registerIpc();
     createTray();
     await restoreAuth();
@@ -457,4 +518,21 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+});
+
+app.on("will-quit", (event) => {
+  const runtime = managedGateway;
+  if (!runtime || gatewayShutdownStarted) return;
+
+  event.preventDefault();
+  gatewayShutdownStarted = true;
+  managedGateway = undefined;
+  void runtime
+    .close()
+    .catch((error) =>
+      console.error("[gateway] shutdown failed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    )
+    .finally(() => app.quit());
 });

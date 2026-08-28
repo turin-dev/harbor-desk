@@ -28,10 +28,23 @@ Unsupported capabilities intentionally surface an unavailable state.
 ## Security model
 
 - The Electron renderer is not a Docker client. It has no Docker CLI, Engine
-  SDK, socket, client certificate, private key, or direct Engine endpoint.
+  SDK, socket, or direct Engine transport. A user can submit an endpoint and
+  mTLS material through the host-registration form, but the gateway stores and
+  uses those values and never returns them in a `Host` response.
+- By default the Electron main process starts a development gateway on exactly
+  `127.0.0.1` before it creates the renderer window. It never binds that managed
+  runtime to a LAN interface and does not start a Docker daemon.
+- Each desktop-managed gateway requires a cryptographically random per-launch
+  `x-harbor-desktop-token`. This protects the loopback API when CORS permits the
+  packaged renderer's opaque `file://` origin (`Origin: null`). The token is
+  kept in the main process, exposed only through the narrow preload API needed
+  to attach requests, and excluded from diagnostics and logs.
 - The Fastify gateway is the policy boundary. It authenticates users, applies
   server-side host grants and roles, validates requests, records audit
   metadata, and invokes the selected server-side connector.
+- Automatic startup is allowed only for a plain-HTTP root URL on exact
+  `127.0.0.1`. HTTPS, LAN, and remote URLs are treated as external gateways;
+  `HARBOR_DISABLE_MANAGED_GATEWAY=1` also disables automatic startup.
 - Production Engine records require HTTPS, mTLS material held server side, and
   an explicit endpoint allowlist. Embedded endpoint credentials are rejected.
 - Production startup must use OIDC, TLS, and an injected Vault/KMS-backed
@@ -40,6 +53,12 @@ Unsupported capabilities intentionally surface an unavailable state.
 - Tokens, mTLS material, provider credentials, and Compose secrets must be
   redacted from logs. Avoid adding raw upstream error bodies or stack traces to
   API responses.
+
+The desktop-managed gateway is a convenience for the development preview, not
+process isolation or a production deployment. Renderer compromise can use the
+narrow preload API as the legitimate renderer can; the per-launch token is a
+loopback channel guard, not a substitute for OIDC, host authorization, endpoint
+allowlisting, durable secrets, or operating-system isolation.
 
 ## Docker socket warning
 

@@ -19,6 +19,14 @@ interface Window {
       delete: (key: string) => Promise<boolean>;
     };
     openExternal: (url: string) => Promise<boolean>;
+    gateway: {
+      getRuntimeStatus: () => Promise<{
+        state: "managed" | "external" | "disabled" | "unavailable";
+        url: string;
+        message: string;
+      }>;
+      getSessionToken: () => Promise<string | undefined>;
+    };
     auth: {
       startLogin: (providerId: string) => Promise<boolean>;
       getAccessToken: () => Promise<string | undefined>;

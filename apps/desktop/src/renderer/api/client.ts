@@ -18,11 +18,11 @@ import type {
   VolumeSummary,
 } from "@harbor/contracts";
 
-const gatewayUrl = (
+const fallbackGatewayUrl = (
   (import.meta.env.VITE_GATEWAY_URL as string | undefined) ??
   "http://127.0.0.1:4310"
 ).replace(/\/$/, "");
-const gatewayUrlObject = new URL(gatewayUrl);
+const gatewayUrlObject = new URL(fallbackGatewayUrl);
 if (
   gatewayUrlObject.protocol !== "http:" &&
   gatewayUrlObject.protocol !== "https:"
@@ -30,7 +30,7 @@ if (
   throw new Error("VITE_GATEWAY_URL must use HTTP or HTTPS.");
 }
 
-function websocketUrl(path: string): string {
+function websocketUrl(gatewayUrl: string, path: string): string {
   return `${gatewayUrl.replace(/^http/i, "ws")}${path}`;
 }
 
@@ -48,16 +48,58 @@ export class GatewayClientError extends Error {
   }
 }
 
+export interface DesktopGatewayRuntimeStatus {
+  state: "managed" | "external" | "disabled" | "unavailable";
+  url: string;
+  message: string;
+}
+
+export const desktopGateway = {
+  getRuntimeStatus: async (): Promise<DesktopGatewayRuntimeStatus> => {
+    if (!window.harbor?.gateway)
+      return {
+        state: "disabled",
+        url: fallbackGatewayUrl,
+        message: "Automatic gateway startup is available in the desktop app.",
+      };
+
+    return window.harbor.gateway.getRuntimeStatus().catch(() => ({
+      state: "unavailable",
+      url: fallbackGatewayUrl,
+      message: "The desktop gateway runtime status could not be read.",
+    }));
+  },
+};
+
+async function activeGatewayUrl(): Promise<string> {
+  const runtime = await desktopGateway.getRuntimeStatus();
+  try {
+    const url = new URL(runtime.url);
+    if (url.protocol !== "http:" && url.protocol !== "https:")
+      throw new Error();
+    return runtime.url.replace(/\/$/, "");
+  } catch {
+    return fallbackGatewayUrl;
+  }
+}
+
 async function fetchWithToken(
   path: string,
   options: RequestInit,
   accessToken: string | undefined,
 ): Promise<Response> {
+  const [gatewayUrl, desktopSessionToken] = await Promise.all([
+    activeGatewayUrl(),
+    window.harbor?.gateway.getSessionToken().catch(() => undefined),
+  ]);
   return fetch(`${gatewayUrl}${path}`, {
     ...options,
     headers: {
       accept: "application/json",
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+      ...(desktopSessionToken
+        ? { "x-harbor-desktop-token": desktopSessionToken }
+        : {}),
       ...(options.body ? { "content-type": "application/json" } : {}),
       ...options.headers,
     },
@@ -246,25 +288,26 @@ export const gateway = {
     ),
 };
 
-export function getGatewayWebSocketUrl(
+export async function getGatewayWebSocketUrl(
   hostId?: string,
   cursor?: string,
   ticket?: string,
-): string {
+): Promise<string> {
   const query = new URLSearchParams();
   if (hostId) query.set("hostId", hostId);
   if (cursor) query.set("cursor", cursor);
   if (ticket) query.set("ticket", ticket);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return websocketUrl(`/api/v1/stream${suffix}`);
+  return websocketUrl(await activeGatewayUrl(), `/api/v1/stream${suffix}`);
 }
 
-export function getTerminalWebSocketUrl(
+export async function getTerminalWebSocketUrl(
   sessionId: string,
   ticket?: string,
-): string {
+): Promise<string> {
   const query = ticket ? `?ticket=${encodeURIComponent(ticket)}` : "";
   return websocketUrl(
+    await activeGatewayUrl(),
     `/api/v1/terminal/${encodeURIComponent(sessionId)}${query}`,
   );
 }

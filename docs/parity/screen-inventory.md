@@ -30,8 +30,12 @@ actual Electron window, not merely in a browser tab:
 - Development CSP permits the Vite React preamble while keeping the production
   renderer isolated through Electron context isolation, sandboxing, and a
   Docker-socket-free preload boundary.
-- Both localhost and 127.0.0.1 Vite origins are accepted by the local gateway
-  CORS allowlist, so the Electron default URL can establish a session.
+- Both localhost and 127.0.0.1 Vite origins are accepted by the managed
+  gateway CORS allowlist. The packaged `file://` origin is accepted only with
+  the random per-launch desktop token.
+- The Electron main process starts the gateway on exact `127.0.0.1` before the
+  renderer loads; Troubleshoot reports managed, external, disabled, or
+  unavailable without exposing the token.
 - The native Windows menu bar is hidden by default; the app retains its own
   navigation and tray restoration paths.
 - The renderer root has visible content and a captured page contains the

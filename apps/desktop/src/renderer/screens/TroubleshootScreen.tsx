@@ -21,7 +21,11 @@ import {
 import type { Host } from "@harbor/contracts";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
-import { useGatewayHealth, useHosts } from "../state/queries.js";
+import {
+  useDesktopGatewayRuntime,
+  useGatewayHealth,
+  useHosts,
+} from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
 
 const capabilityLabels: Array<[keyof Host["capabilities"], string]> = [
@@ -42,6 +46,7 @@ const capabilityLabels: Array<[keyof Host["capabilities"], string]> = [
 
 export function TroubleshootScreen() {
   const health = useGatewayHealth();
+  const runtime = useDesktopGatewayRuntime();
   const { data: hosts = [], isLoading: hostsLoading } = useHosts();
   const selectedHostId = useUiStore((state) => state.selectedHostId);
   const selectedHost = useMemo(
@@ -49,6 +54,7 @@ export function TroubleshootScreen() {
     [hosts, selectedHostId],
   );
   const refresh = () => {
+    void runtime.refetch();
     void health.refetch();
   };
 
@@ -57,7 +63,7 @@ export function TroubleshootScreen() {
       <PageHeader
         eyebrow="Support"
         title="Troubleshoot"
-        description="Inspect the real gateway, authentication, connector, and remote Engine state without exposing server secrets."
+        description="Inspect automatic gateway startup, authentication, connectors, and remote Engine state without exposing secrets."
         actions={
           <Button
             variant="outlined"
@@ -71,8 +77,9 @@ export function TroubleshootScreen() {
       />
       {health.isError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          The gateway health endpoint could not be reached. Check the configured
-          gateway URL and server availability.
+          The gateway health endpoint could not be reached.{" "}
+          {runtime.data?.message ??
+            "Inspect the configured URL and desktop startup logs."}
         </Alert>
       ) : (
         <Stack spacing={2}>
@@ -80,12 +87,21 @@ export function TroubleshootScreen() {
             <SectionHeading
               icon={<CloudQueue />}
               title="Gateway"
-              description="Control-plane API and dependency status"
+              description="Desktop-managed control-plane API and dependency status"
             />
             {health.isLoading ? (
               <CheckLoading />
             ) : (
               <>
+                <DiagnosticRow
+                  label="startup"
+                  value={runtime.data?.state ?? "checking"}
+                  good={
+                    runtime.data?.state === "managed" ||
+                    runtime.data?.state === "external"
+                  }
+                />
+                <Divider sx={{ my: 1.4 }} />
                 <Stack
                   direction="row"
                   alignItems="center"
@@ -197,8 +213,8 @@ export function TroubleshootScreen() {
           <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
             <DiagnosticNote
               icon={<Security />}
-              title="Credentials stay server-side"
-              body="The renderer receives a host summary only. CA certificates, client keys, and Engine endpoints remain behind the gateway."
+              title="Gateway starts with the client"
+              body="The desktop starts a per-launch token-protected gateway on 127.0.0.1 before loading the interface. It stops with the client and is never bound to a LAN interface."
             />
             <DiagnosticNote
               icon={<Storage />}

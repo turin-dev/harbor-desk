@@ -4,7 +4,16 @@ import type {
   NetworkCreateInput,
   VolumeCreateInput,
 } from "@harbor/contracts";
-import { gateway } from "../api/client.js";
+import { desktopGateway, gateway } from "../api/client.js";
+
+export function useDesktopGatewayRuntime() {
+  return useQuery({
+    queryKey: ["desktop-gateway-runtime"],
+    queryFn: desktopGateway.getRuntimeStatus,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+}
 
 export function useGatewayHealth() {
   return useQuery({

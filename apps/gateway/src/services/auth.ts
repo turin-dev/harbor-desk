@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { FastifyRequest } from "fastify";
 import type {
@@ -14,6 +14,19 @@ function asRole(value: unknown): Role | undefined {
   return value === "viewer" || value === "operator" || value === "admin"
     ? value
     : undefined;
+}
+
+function matchesDesktopSessionToken(
+  expected: string,
+  provided: string | string[] | undefined,
+): boolean {
+  if (typeof provided !== "string") return false;
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const providedBytes = Buffer.from(provided, "utf8");
+  return (
+    expectedBytes.length === providedBytes.length &&
+    timingSafeEqual(expectedBytes, providedBytes)
+  );
 }
 
 function stringListFromClaim(value: unknown): string[] | undefined {
@@ -218,6 +231,14 @@ export class AuthService {
     request: FastifyRequest,
   ): Promise<CurrentUser | undefined> {
     if (this.config.authMode === "dev") {
+      if (
+        this.config.desktopSessionToken &&
+        !matchesDesktopSessionToken(
+          this.config.desktopSessionToken,
+          request.headers["x-harbor-desktop-token"],
+        )
+      )
+        return undefined;
       return {
         id: "dev-user",
         displayName: "Development operator",
