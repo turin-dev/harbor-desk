@@ -315,13 +315,34 @@ jobs:
             '
           }
 
+          npm_view_json() {
+            local output=""
+            local error_file
+            local attempt
+            error_file="$(mktemp)"
+            for attempt in 1 2 3 4 5 6; do
+              if output="$(npm view "$@" --json 2>"${error_file}")"; then
+                printf '%s' "${output}"
+                rm -f "${error_file}"
+                return 0
+              fi
+              if [ "${attempt}" -lt 6 ]; then
+                sleep 5
+              fi
+            done
+            echo "npm metadata query failed after retries: npm view $* --json" >&2
+            cat "${error_file}" >&2
+            rm -f "${error_file}"
+            return 1
+          }
+
           version="${RELEASE_VERSION}"
-          metadata="$(npm view "harbor-desk@${version}" version repository dist.integrity --json)"
-          published_version="$(npm view "harbor-desk@${version}" version --json | json_value)"
-          repository_url="$(npm view "harbor-desk@${version}" repository.url --json | json_value)"
-          integrity="$(npm view "harbor-desk@${version}" dist.integrity --json | json_value)"
-          preview_version="$(npm view harbor-desk dist-tags.preview --json | json_value)"
-          latest_version="$(npm view harbor-desk version --json | json_value)"
+          metadata="$(npm_view_json "harbor-desk@${version}" version repository dist.integrity)"
+          published_version="$(npm_view_json "harbor-desk@${version}" version | json_value)"
+          repository_url="$(npm_view_json "harbor-desk@${version}" repository.url | json_value)"
+          integrity="$(npm_view_json "harbor-desk@${version}" dist.integrity | json_value)"
+          preview_version="$(npm_view_json harbor-desk dist-tags.preview | json_value)"
+          latest_version="$(npm_view_json harbor-desk version | json_value)"
 
           if [ "${published_version}" != "${version}" ] || [ -z "${integrity}" ]; then
             echo "npm metadata did not confirm the published version or integrity." >&2

@@ -462,6 +462,7 @@ test("uses Node 24 artifact actions and distinguishes release tarballs from npm"
   );
   assert.match(workflow, /npm publish "\.\/\$\{tarball\}"/);
   assert.match(workflow, /already published; refusing to overwrite it/);
+  assert.match(workflow, /npm_view_json[\s\S]*sleep 5[\s\S]*after retries/);
   assert.match(workflow, /needs: \[verify, client, server, publish-npm\]/);
   assert.match(workflow, /NPM_PREVIEW_VERSION:/);
   assert.doesNotMatch(
