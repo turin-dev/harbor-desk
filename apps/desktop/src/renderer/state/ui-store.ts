@@ -21,6 +21,9 @@ interface UiState {
   selectedHostId?: string;
   themeMode: ThemeMode;
   launchAtLogin: boolean;
+  automaticUpdateChecks: boolean;
+  includePreviewUpdates: boolean;
+  updateStatus: DesktopUpdateCheckStatus;
   showConnectionNotifications: boolean;
   terminalFontSize: number;
   terminalOpen: boolean;
@@ -31,6 +34,9 @@ interface UiState {
   setSelectedHostId: (hostId: string | undefined) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setLaunchAtLogin: (enabled: boolean) => void;
+  setAutomaticUpdateChecks: (enabled: boolean) => void;
+  setIncludePreviewUpdates: (enabled: boolean) => void;
+  setUpdateStatus: (status: DesktopUpdateCheckStatus) => void;
   setShowConnectionNotifications: (enabled: boolean) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalOpen: (open: boolean) => void;
@@ -50,6 +56,13 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       themeMode: "dark",
       launchAtLogin: false,
+      automaticUpdateChecks: true,
+      includePreviewUpdates: true,
+      updateStatus: {
+        state: "idle",
+        currentVersion: "development",
+        message: "Updates have not been checked yet.",
+      },
       showConnectionNotifications: true,
       terminalFontSize: 12,
       terminalOpen: false,
@@ -67,6 +80,11 @@ export const useUiStore = create<UiState>()(
         ),
       setThemeMode: (themeMode) => set({ themeMode }),
       setLaunchAtLogin: (launchAtLogin) => set({ launchAtLogin }),
+      setAutomaticUpdateChecks: (automaticUpdateChecks) =>
+        set({ automaticUpdateChecks }),
+      setIncludePreviewUpdates: (includePreviewUpdates) =>
+        set({ includePreviewUpdates }),
+      setUpdateStatus: (updateStatus) => set({ updateStatus }),
       setShowConnectionNotifications: (showConnectionNotifications) =>
         set({ showConnectionNotifications }),
       setTerminalFontSize: (terminalFontSize) => set({ terminalFontSize }),
@@ -108,6 +126,8 @@ export const useUiStore = create<UiState>()(
         selectedHostId: state.selectedHostId,
         themeMode: state.themeMode,
         launchAtLogin: state.launchAtLogin,
+        automaticUpdateChecks: state.automaticUpdateChecks,
+        includePreviewUpdates: state.includePreviewUpdates,
         showConnectionNotifications: state.showConnectionNotifications,
         terminalFontSize: state.terminalFontSize,
       }),

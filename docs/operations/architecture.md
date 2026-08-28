@@ -25,6 +25,20 @@ origin is `null`. The main process keeps the token and exposes a narrow preload
 getter; diagnostics must never include it. This is a loopback channel guard,
 not a replacement for user authentication or process isolation.
 
+## Update discovery
+
+The renderer does not contact a package feed. After startup, the React bridge
+can ask the Electron main process to list public releases for the fixed
+`turin-dev/harbor-desk` GitHub repository. The main process applies a timeout,
+response-size limit, draft/prerelease channel filtering, and semantic-version
+comparison, then sends a typed status over IPC. Duplicate automatic checks are
+cooled down within the desktop session.
+
+The update path is discovery-only. It does not consume release asset URLs or
+invoke a platform installer. A user action can open only a validated HTTPS
+release-tag page for this repository in the system browser. Automatic checks
+are enabled by default but can be disabled in persisted client preferences.
+
 ## Host connection
 
 Production host records use an HTTPS Docker Engine endpoint and server-side

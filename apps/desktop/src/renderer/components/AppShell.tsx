@@ -19,6 +19,7 @@ import {
   Settings,
   Shield,
   Storage,
+  SystemUpdateAlt,
   Terminal,
   Tune,
   Widgets,
@@ -26,6 +27,7 @@ import {
 } from "@mui/icons-material";
 import {
   AppBar,
+  Alert,
   Avatar,
   Box,
   Button,
@@ -207,12 +209,18 @@ function ClientStatusBar({
   gatewayMode,
   terminalOpen,
   onToggleTerminal,
+  updateStatus,
+  onCheckUpdates,
+  onOpenUpdate,
 }: {
   host?: Host;
   gatewayUnavailable: boolean;
   gatewayMode?: "managed" | "external" | "disabled" | "unavailable";
   terminalOpen: boolean;
   onToggleTerminal: () => void;
+  updateStatus: DesktopUpdateCheckStatus;
+  onCheckUpdates: () => void;
+  onOpenUpdate: () => void;
 }) {
   const online = host?.status === "online";
   const modeLabel =
@@ -223,6 +231,16 @@ function ClientStatusBar({
         : gatewayUnavailable
           ? "Gateway unavailable"
           : "Automatic gateway";
+  const updateLabel =
+    updateStatus.state === "checking"
+      ? "Checking for updates…"
+      : updateStatus.state === "available"
+        ? `Update ${updateStatus.latestVersion} available`
+        : updateStatus.state === "up-to-date"
+          ? "Up to date"
+          : updateStatus.state === "error"
+            ? "Update check failed"
+            : "Check for updates";
   return (
     <Box
       component="footer"
@@ -279,11 +297,27 @@ function ClientStatusBar({
         Terminal
       </Button>
       <Divider orientation="vertical" flexItem sx={{ my: 0.75 }} />
-      <Typography
-        sx={{ color: "primary.main", fontSize: 12, whiteSpace: "nowrap" }}
+      <Button
+        color="inherit"
+        onClick={
+          updateStatus.state === "available" ? onOpenUpdate : onCheckUpdates
+        }
+        disabled={updateStatus.state === "checking"}
+        startIcon={<SystemUpdateAlt sx={{ fontSize: 15 }} />}
+        sx={{
+          minHeight: 30,
+          px: 1,
+          color:
+            updateStatus.state === "available"
+              ? "warning.main"
+              : "primary.main",
+          fontSize: 12,
+          fontWeight: updateStatus.state === "available" ? 650 : 400,
+          whiteSpace: "nowrap",
+        }}
       >
-        Check for updates
-      </Typography>
+        {updateLabel}
+      </Button>
     </Box>
   );
 }
@@ -310,6 +344,12 @@ export function AppShell() {
   const setSelectedHostId = useUiStore((state) => state.setSelectedHostId);
   const terminalOpen = useUiStore((state) => state.terminalOpen);
   const setTerminalOpen = useUiStore((state) => state.setTerminalOpen);
+  const includePreviewUpdates = useUiStore(
+    (state) => state.includePreviewUpdates,
+  );
+  const updateStatus = useUiStore((state) => state.updateStatus);
+  const setUpdateStatus = useUiStore((state) => state.setUpdateStatus);
+  const showToast = useUiStore((state) => state.showToast);
   const selectedHost = useMemo(
     () => hosts.find((host) => host.id === selectedHostId) ?? hosts[0],
     [hosts, selectedHostId],
@@ -336,6 +376,47 @@ export function AppShell() {
   const controlWindow = (action: "minimize" | "toggleMaximize" | "close") => {
     const operation = window.harbor?.windowControls?.[action];
     if (operation) void operation();
+  };
+
+  const checkForUpdates = () => {
+    const updates = window.harbor?.updates;
+    if (!updates) {
+      showToast("Update checks are available in the desktop client.", "error");
+      return;
+    }
+    void updates
+      .check({ includePrerelease: includePreviewUpdates, manual: true })
+      .then((status) => {
+        setUpdateStatus(status);
+        showToast(
+          status.message,
+          status.state === "error"
+            ? "error"
+            : status.state === "available"
+              ? "info"
+              : "success",
+        );
+      })
+      .catch(() =>
+        showToast("The desktop update service was unavailable.", "error"),
+      );
+  };
+
+  const openAvailableUpdate = () => {
+    const updates = window.harbor?.updates;
+    if (!updates) {
+      showToast("Update links are available in the desktop client.", "error");
+      return;
+    }
+    void updates
+      .openRelease()
+      .then((opened) => {
+        if (!opened)
+          showToast("The verified release page was unavailable.", "error");
+      })
+      .catch(() =>
+        showToast("The verified release page was unavailable.", "error"),
+      );
   };
 
   return (
@@ -596,6 +677,27 @@ export function AppShell() {
         )}
 
         <Box component="main" sx={{ flex: 1, minWidth: 0, overflow: "auto" }}>
+          {updateStatus.state === "available" && (
+            <Alert
+              severity="info"
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={openAvailableUpdate}
+                >
+                  View release
+                </Button>
+              }
+              sx={{ mx: 4, mt: 1.5 }}
+            >
+              {updateStatus.latestVersion
+                ? `Harbor Desk ${updateStatus.latestVersion} is available.`
+                : "A newer Harbor Desk release is available."}{" "}
+              Review the release notes and checksums before downloading; the
+              client will not install it automatically.
+            </Alert>
+          )}
           {(hostsError ||
             (selectedHost && selectedHost.status !== "online")) && (
             <Box sx={{ px: 4, pt: 1.5 }}>
@@ -637,6 +739,9 @@ export function AppShell() {
         gatewayMode={gatewayRuntime?.state}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        updateStatus={updateStatus}
+        onCheckUpdates={checkForUpdates}
+        onOpenUpdate={openAvailableUpdate}
       />
     </Box>
   );

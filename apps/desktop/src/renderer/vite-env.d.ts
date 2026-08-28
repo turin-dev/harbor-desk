@@ -1,9 +1,22 @@
 /// <reference types="vite/client" />
 
+type DesktopUpdateCheckState =
+  "idle" | "checking" | "available" | "up-to-date" | "error";
+
+interface DesktopUpdateCheckStatus {
+  state: DesktopUpdateCheckState;
+  currentVersion: string;
+  latestVersion?: string;
+  releaseUrl?: string;
+  checkedAt?: string;
+  message: string;
+}
+
 interface Window {
   harbor?: {
     platform: string;
     version: string;
+    electronVersion: string;
     setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
     windowControls: {
       minimize: () => Promise<boolean>;
@@ -19,6 +32,17 @@ interface Window {
       delete: (key: string) => Promise<boolean>;
     };
     openExternal: (url: string) => Promise<boolean>;
+    updates: {
+      getStatus: () => Promise<DesktopUpdateCheckStatus>;
+      check: (options?: {
+        includePrerelease?: boolean;
+        manual?: boolean;
+      }) => Promise<DesktopUpdateCheckStatus>;
+      openRelease: () => Promise<boolean>;
+      onStatus: (
+        listener: (status: DesktopUpdateCheckStatus) => void,
+      ) => () => void;
+    };
     gateway: {
       getRuntimeStatus: () => Promise<{
         state: "managed" | "external" | "disabled" | "unavailable";

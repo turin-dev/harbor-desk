@@ -47,6 +47,9 @@ pass it through host path resolution: on Windows that yields
   default in-memory production secret store.
 - When a change affects a route, authorization, secret handling, or Engine
   connector, update tests and the security/architecture documentation.
+- Keep update discovery in the Electron main process and restricted to the
+  fixed public Harbor Desk release source. Do not expose a generic package URL,
+  automatically download an artifact, or execute an installer.
 - Do not create a public repository, publish an artifact, or push a branch
   without explicit maintainer approval.
 

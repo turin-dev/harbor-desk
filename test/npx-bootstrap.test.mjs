@@ -321,6 +321,53 @@ test("packages and initializes the desktop-managed gateway before the renderer",
   );
 });
 
+test("checks a fixed public release feed without downloading updates", async () => {
+  const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
+  const main = await readFile(
+    new URL("../apps/desktop/src/main/main.ts", import.meta.url),
+    "utf8",
+  );
+  const checker = await readFile(
+    new URL("../apps/desktop/src/main/update-checker.ts", import.meta.url),
+    "utf8",
+  );
+  const preload = await readFile(
+    new URL("../apps/desktop/src/preload.cts", import.meta.url),
+    "utf8",
+  );
+  const renderer = await readFile(
+    new URL("../apps/desktop/src/renderer/App.tsx", import.meta.url),
+    "utf8",
+  );
+  const settings = await readFile(
+    new URL(
+      "../apps/desktop/src/renderer/screens/SettingsScreen.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.equal(desktop.dependencies?.["electron-updater"], undefined);
+  assert.match(
+    checker,
+    /https:\/\/api\.github\.com\/repos\/turin-dev\/harbor-desk\/releases\?per_page=30/,
+  );
+  assert.match(checker, /application\/vnd\.github\+json/);
+  assert.match(checker, /maximumResponseBytes/);
+  assert.match(checker, /isTrustedUpdateReleaseUrl/);
+  assert.doesNotMatch(
+    `${checker}\n${main}\n${preload}`,
+    /browser_download_url|autoDownload|downloadUpdate|quitAndInstall/,
+    "the update checker must discover releases without downloading or executing assets",
+  );
+  assert.match(main, /ipcMain\.handle\("updates:check"/);
+  assert.match(main, /ipcMain\.handle\("updates:open-release"/);
+  assert.match(preload, /ipcRenderer\.invoke\(\s*"updates:check"/);
+  assert.match(renderer, /manual: false/);
+  assert.match(settings, /Automatically check for updates/);
+  assert.match(settings, /never downloads or installs an update automatically/);
+});
+
 test("keeps packaged renderer assets relative to the file URL", async () => {
   const html = await readFile(rendererIndexUrl, "utf8");
   const references = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map(
