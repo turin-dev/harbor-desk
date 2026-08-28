@@ -1,6 +1,6 @@
 {
   "name": "@harbor/desktop",
-  "version": "0.4.0",
+  "version": "0.5.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Client-first container operations app with an automatic gateway",
@@ -20,7 +20,7 @@
     "package:mac": "pnpm run build && electron-builder --mac dmg zip",
     "package:dir": "pnpm run build && electron-builder --dir",
     "start": "electron .",
-    "test": "node --test dist/**/*.test.js && tsx --test test/managed-gateway.test.ts src/renderer/bootstrap-state.test.ts"
+    "test": "node --test dist/**/*.test.js && tsx --test test/managed-gateway.test.ts test/update-checker.test.ts src/renderer/bootstrap-state.test.ts"
   },
   "dependencies": {
     "@fontsource/roboto": "^5.3.0",

@@ -41,6 +41,9 @@ actual Electron window, not merely in a browser tab:
 - The renderer root has visible content and a captured page contains the
   shared navigation, top bar, and current surface rather than only the window
   background.
+- The desktop performs a non-blocking startup update check when enabled,
+  reports checking/current/available/error states in the shared shell, and
+  never downloads or executes a release asset automatically.
 - The long-run soak checks the selected Electron main-process PID together
   with the gateway and renderer endpoints. A prior PID or a background-only
   HTTP probe is not sufficient evidence of a working desktop window.
@@ -73,7 +76,7 @@ actual Electron window, not merely in a browser tab:
 | Registry       | Shell and state model                                                             | Hub/OCI adapter                  |
 | Image security | Shell and state model                                                             | Trivy/Grype worker               |
 | Assistant      | Shell and state model                                                             | User-selected LLM adapter        |
-| Settings       | Remote-native general settings                                                    | Gateway configuration and policy |
+| Settings       | General, startup-update, and remote-native settings                               | Gateway configuration and policy |
 | Troubleshoot   | Live gateway, host, API, and capability diagnostics                               | Gateway/host diagnostics         |
 | About          | Client/gateway versions and redacted diagnostics                                  | Client runtime                   |
 

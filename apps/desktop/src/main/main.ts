@@ -20,6 +20,12 @@ import {
   type ManagedGatewayRuntime,
   type ManagedGatewayStatus,
 } from "./managed-gateway.js";
+import {
+  checkForUpdates,
+  initialUpdateStatus,
+  isTrustedUpdateReleaseUrl,
+  type UpdateCheckStatus,
+} from "./update-checker.js";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 const gatewayUrl = (
@@ -43,6 +49,10 @@ let accessToken: string | undefined;
 let isQuitting = false;
 let gatewayShutdownStarted = false;
 let managedGateway: ManagedGatewayRuntime | undefined;
+let updateStatus: UpdateCheckStatus | undefined;
+let updateCheckInFlight: Promise<UpdateCheckStatus> | undefined;
+let lastUpdateCheckStartedAt = 0;
+let lastUpdateCheckIncludedPrereleases: boolean | undefined;
 let managedGatewayStatus: ManagedGatewayStatus = {
   state: "unavailable",
   url: gatewayUrl,
@@ -55,6 +65,66 @@ let pendingLogin:
 interface StoredRefreshToken {
   providerId: string;
   refreshToken: string;
+}
+
+const updateCheckCooldownMs = 15 * 60 * 1_000;
+
+function currentUpdateStatus(): UpdateCheckStatus {
+  updateStatus ??= initialUpdateStatus(app.getVersion());
+  return updateStatus;
+}
+
+function notifyUpdateStatus(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("updates:status", { ...currentUpdateStatus() });
+}
+
+function setUpdateStatus(status: UpdateCheckStatus): UpdateCheckStatus {
+  updateStatus = status;
+  notifyUpdateStatus();
+  return status;
+}
+
+async function runUpdateCheck(input?: {
+  includePrerelease?: boolean;
+  manual?: boolean;
+}): Promise<UpdateCheckStatus> {
+  const includePrerelease = input?.includePrerelease !== false;
+  const now = Date.now();
+  if (updateCheckInFlight) return updateCheckInFlight;
+  if (
+    input?.manual !== true &&
+    lastUpdateCheckIncludedPrereleases === includePrerelease &&
+    now - lastUpdateCheckStartedAt < updateCheckCooldownMs &&
+    currentUpdateStatus().state !== "idle"
+  )
+    return currentUpdateStatus();
+
+  lastUpdateCheckStartedAt = now;
+  lastUpdateCheckIncludedPrereleases = includePrerelease;
+  setUpdateStatus({
+    state: "checking",
+    currentVersion: app.getVersion(),
+    message: "Checking GitHub Releases for updates…",
+  });
+
+  updateCheckInFlight = checkForUpdates({
+    currentVersion: app.getVersion(),
+    includePrerelease,
+  })
+    .then(setUpdateStatus)
+    .catch(() =>
+      setUpdateStatus({
+        state: "error",
+        currentVersion: app.getVersion(),
+        checkedAt: new Date().toISOString(),
+        message: "The update check failed unexpectedly. Try again later.",
+      }),
+    )
+    .finally(() => {
+      updateCheckInFlight = undefined;
+    });
+  return updateCheckInFlight;
 }
 
 function desktopGatewayHeaders(): Record<string, string> {
@@ -450,6 +520,29 @@ function registerIpc(): void {
   ipcMain.handle("app:open-external", async (_event, url: unknown) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
     await shell.openExternal(url);
+    return true;
+  });
+
+  ipcMain.handle("updates:get-status", () => ({ ...currentUpdateStatus() }));
+  ipcMain.handle("updates:check", async (_event, value: unknown) => {
+    const input =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : undefined;
+    return runUpdateCheck({
+      includePrerelease: input?.includePrerelease !== false,
+      manual: input?.manual === true,
+    });
+  });
+  ipcMain.handle("updates:open-release", async () => {
+    const status = currentUpdateStatus();
+    if (
+      status.state !== "available" ||
+      !status.releaseUrl ||
+      !isTrustedUpdateReleaseUrl(status.releaseUrl)
+    )
+      return false;
+    await shell.openExternal(status.releaseUrl);
     return true;
   });
 

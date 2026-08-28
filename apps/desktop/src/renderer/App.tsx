@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   Box,
   CircularProgress,
@@ -38,9 +38,66 @@ export function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <DesktopUpdateController />
       <AuthGate />
     </ThemeProvider>
   );
+}
+
+function DesktopUpdateController() {
+  const automaticUpdateChecks = useUiStore(
+    (state) => state.automaticUpdateChecks,
+  );
+  const includePreviewUpdates = useUiStore(
+    (state) => state.includePreviewUpdates,
+  );
+  const setUpdateStatus = useUiStore((state) => state.setUpdateStatus);
+  const automaticCheckKey = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const updates = window.harbor?.updates;
+    if (!updates) return undefined;
+    let active = true;
+    const unsubscribe = updates.onStatus((status) => {
+      if (active) setUpdateStatus(status);
+    });
+    void updates
+      .getStatus()
+      .then((status) => {
+        if (active) setUpdateStatus(status);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [setUpdateStatus]);
+
+  useEffect(() => {
+    if (!automaticUpdateChecks) {
+      automaticCheckKey.current = undefined;
+      return;
+    }
+    const updates = window.harbor?.updates;
+    if (!updates) return;
+    const key = includePreviewUpdates ? "preview" : "stable";
+    if (automaticCheckKey.current === key) return;
+    automaticCheckKey.current = key;
+    void updates
+      .check({ includePrerelease: includePreviewUpdates, manual: false })
+      .then(setUpdateStatus)
+      .catch(() => {
+        setUpdateStatus({
+          state: "error",
+          currentVersion:
+            useUiStore.getState().updateStatus.currentVersion || "unknown",
+          checkedAt: new Date().toISOString(),
+          message: "The desktop update service was unavailable.",
+        });
+      });
+  }, [automaticUpdateChecks, includePreviewUpdates, setUpdateStatus]);
+
+  return null;
 }
 
 function AuthGate() {

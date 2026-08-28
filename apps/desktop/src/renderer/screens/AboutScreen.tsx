@@ -22,12 +22,16 @@ export function AboutScreen() {
   const runtime = useDesktopGatewayRuntime();
   const { data: hosts = [] } = useHosts();
   const showToast = useUiStore((state) => state.showToast);
+  const updateStatus = useUiStore((state) => state.updateStatus);
   const [copied, setCopied] = useState(false);
-  const clientVersion = window.harbor?.version ?? "development";
+  const clientVersion = updateStatus.currentVersion;
   const diagnostic = JSON.stringify(
     {
       client: clientVersion,
+      electron: window.harbor?.electronVersion ?? "browser",
       platform: window.harbor?.platform ?? "browser",
+      updateCheck: updateStatus.state,
+      latestRelease: updateStatus.latestVersion ?? "unknown",
       gateway: health.data?.version ?? "unavailable",
       gatewayStatus: health.data?.status ?? "unavailable",
       gatewayRuntime: runtime.data?.state ?? "unavailable",
@@ -90,6 +94,10 @@ export function AboutScreen() {
               value={window.harbor?.platform ?? "Browser preview"}
             />
             <VersionRow
+              label="Electron"
+              value={window.harbor?.electronVersion ?? "Browser preview"}
+            />
+            <VersionRow
               label="Gateway"
               value={health.data?.version ?? "Unavailable"}
             />
@@ -98,6 +106,7 @@ export function AboutScreen() {
               value={runtime.data?.state ?? "Unavailable"}
             />
             <VersionRow label="Registered hosts" value={String(hosts.length)} />
+            <VersionRow label="Update check" value={updateStatus.state} />
           </Stack>
         </Paper>
 

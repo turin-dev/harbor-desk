@@ -39,6 +39,7 @@ export function renderReleaseNotes({
   changelogSection,
   npmReleaseVersion = "",
   npmLatestVersion = "",
+  npmPreviewVersion = "",
 }) {
   if (!version?.trim()) {
     throw new Error("A release version is required.");
@@ -50,10 +51,15 @@ export function renderReleaseNotes({
   const registryHasRelease = [npmReleaseVersion, npmLatestVersion]
     .map((value) => value.trim().replace(/^v/, ""))
     .includes(normalizedVersion);
+  const registryHasPreviewRelease =
+    npmPreviewVersion.trim().replace(/^v/, "") === normalizedVersion;
 
   let npmStatus;
   if (registryHasRelease) {
-    npmStatus = `The npm registry provides \`${releaseTag}\`. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpx --yes harbor-desk@${normalizedVersion} --version\n\`\`\``;
+    const channel = registryHasPreviewRelease
+      ? ` under the \`preview\` dist-tag (the default \`latest\` dist-tag is unchanged)`
+      : "";
+    npmStatus = `The npm registry provides \`${releaseTag}\`${channel}. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpx --yes harbor-desk@${normalizedVersion} --version\n\`\`\``;
   } else {
     const registryDetail = npmLatestVersion.trim()
       ? `At release time, the npm registry's latest version was \`v${npmLatestVersion.trim().replace(/^v/, "")}\`, so an unpinned \`npx --yes harbor-desk\` command will not fetch \`${releaseTag}\`.`
@@ -103,6 +109,7 @@ async function main() {
     changelogSection: extractChangelogSection(changelog, version),
     npmReleaseVersion: process.env.NPM_RELEASE_VERSION,
     npmLatestVersion: process.env.NPM_LATEST_VERSION,
+    npmPreviewVersion: process.env.NPM_PREVIEW_VERSION,
   });
 
   process.stdout.write(`${notes}\n`);

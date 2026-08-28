@@ -220,6 +220,18 @@ function GeneralSettings() {
   const setThemeMode = useUiStore((state) => state.setThemeMode);
   const launchAtLogin = useUiStore((state) => state.launchAtLogin);
   const setLaunchAtLogin = useUiStore((state) => state.setLaunchAtLogin);
+  const automaticUpdateChecks = useUiStore(
+    (state) => state.automaticUpdateChecks,
+  );
+  const setAutomaticUpdateChecks = useUiStore(
+    (state) => state.setAutomaticUpdateChecks,
+  );
+  const includePreviewUpdates = useUiStore(
+    (state) => state.includePreviewUpdates,
+  );
+  const setIncludePreviewUpdates = useUiStore(
+    (state) => state.setIncludePreviewUpdates,
+  );
   const fontSize = useUiStore((state) => state.terminalFontSize);
   const setFontSize = useUiStore((state) => state.setTerminalFontSize);
   return (
@@ -265,6 +277,28 @@ function GeneralSettings() {
                   .catch(() => setLaunchAtLogin(!enabled));
             }}
             inputProps={{ "aria-label": "Start Harbor Desk when I sign in" }}
+          />
+        </SettingRow>
+        <Divider />
+        <SettingRow
+          title="Automatically check for updates"
+          description="Checks public GitHub Release metadata when the client starts. It never downloads or installs an update automatically."
+        >
+          <Switch
+            checked={automaticUpdateChecks}
+            onChange={(event) => setAutomaticUpdateChecks(event.target.checked)}
+            inputProps={{ "aria-label": "Automatically check for updates" }}
+          />
+        </SettingRow>
+        <Divider />
+        <SettingRow
+          title="Include preview releases"
+          description="Use the Harbor Desk preview channel for automatic and manual checks."
+        >
+          <Switch
+            checked={includePreviewUpdates}
+            onChange={(event) => setIncludePreviewUpdates(event.target.checked)}
+            inputProps={{ "aria-label": "Include preview releases" }}
           />
         </SettingRow>
         <Divider />

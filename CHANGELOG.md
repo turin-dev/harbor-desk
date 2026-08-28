@@ -7,6 +7,40 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-28
+
+### Added
+
+- The server-side `npx harbor-desk install-server` flow now offers an
+  interactive terminal setup for the destination, port, network binding,
+  authentication mode, OIDC provider file, browser origins, and Docker socket
+  acknowledgement.
+- `-AI` and `--ai-context` now provide stable machine-readable setup context for
+  non-interactive agents without reading Docker, touching the filesystem, or
+  exposing provider credentials.
+- The installer supports an explicit public preview binding with OIDC, HTTPS
+  provider endpoint validation, narrow allowed origins, and protected generated
+  environment settings while retaining loopback plus development authentication
+  as the default.
+
+### Security
+
+- Public server preview setup rejects development authentication and requires
+  OIDC configuration. TLS or reverse-proxy termination, firewall policy, and
+  operational controls remain deployment responsibilities.
+
+## [0.5.0] - 2026-08-28
+
+### Added
+
+- The desktop client checks the public Harbor Desk GitHub Releases metadata
+  after startup and reports available updates in the shared shell. General
+  settings can disable startup checks or exclude preview releases, and the
+  status bar can trigger a manual refresh.
+- Update checks run in the Electron main process behind a narrow preload API.
+  The client opens only the fixed Harbor Desk release-tag page after a user
+  action and never downloads or executes an installer automatically.
+
 ### Fixed
 
 - Release checksum manifests now use portable asset basenames instead of the
@@ -183,7 +217,9 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.1
+[0.5.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.4.0
 [0.3.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.2
 [0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1
