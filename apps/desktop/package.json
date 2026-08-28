@@ -1,6 +1,6 @@
 {
   "name": "@harbor/desktop",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "license": "Apache-2.0",
   "description": "Client-first container operations app with an automatic gateway",

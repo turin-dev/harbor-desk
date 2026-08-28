@@ -97,7 +97,9 @@ export class HostRegistry {
           id,
           options.config.devEngineDisplayName ?? "Development remote engine",
           client,
-          "development-socket",
+          new URL(options.config.devEngineHost).protocol === "https:"
+            ? "mtls"
+            : "development-socket",
         ),
       });
     }

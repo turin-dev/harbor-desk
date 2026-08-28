@@ -28,12 +28,12 @@ not a replacement for user authentication or process isolation.
 ## Standalone server preview
 
 The optional `npx harbor-desk install-server` flow copies a minimal gateway
-payload to a user-selected empty directory and runs it with the server-local
-Engine overlay. The default published port binds to exact loopback and uses
-development authentication. Running the command with no arguments in a TTY
-opens a setup questionnaire; automation must pass explicit options or use
-`-AI`/`--ai-context` to retrieve the stable setup contract without starting
-anything.
+payload to a user-selected empty directory and runs it with either the
+server-local Engine overlay or the remote-Engine mTLS overlay. The default
+published port binds to exact loopback and uses development authentication.
+Running the command with no arguments in a TTY opens a setup questionnaire;
+automation must pass explicit options or use `-AI`/`--ai-context` to retrieve
+the stable setup contract without starting anything.
 
 `--public` is an explicit network-binding opt-in. It changes only the host-side
 published port to `0.0.0.0`; the gateway still listens on its internal container
@@ -46,7 +46,11 @@ and monitoring remain deployment responsibilities.
 The provider file is copied into an owner-readable environment file for the
 gateway and is not included in the AI context or formatted plan. The Docker
 socket remains an explicit server-side high-privilege mount; it is never handed
-to the Electron renderer or a browser client.
+to the Electron renderer or a browser client. An alternative remote Engine mode
+uses an HTTPS endpoint and three administrator-supplied mTLS files. Those files
+remain on the server host and are mounted read-only only inside the gateway
+container; this protects the gateway-to-Engine hop and is separate from
+client-to-gateway TLS termination.
 
 ## Update discovery
 
@@ -73,6 +77,12 @@ Development can use a loopback HTTP endpoint or a Windows `npipe:` endpoint
 from the gateway process. The desktop-managed gateway may read
 `DEV_ENGINE_HOST`, but the renderer never receives or interprets that value.
 No automatic local-Engine fallback exists and Harbor Desk never starts Docker.
+
+The standalone server installer can select the remote Engine path with
+`--engine-endpoint`, `--engine-ca-file`, `--engine-cert-file`, and
+`--engine-key-file`. It then selects the remote-engine Compose overlay instead
+of mounting a local socket. The endpoint must use HTTPS and all three files must
+exist before installation proceeds.
 
 The connector probes `/version` and `/info`, records the negotiated API and
 capability matrix, and maps upstream errors to stable gateway error codes.

@@ -133,11 +133,11 @@ install or use an occupied port.
 
 Run the command without arguments from an interactive terminal to answer setup
 questions for the destination, port, binding, authentication, OIDC provider
-file, browser origins, and Docker-socket acknowledgement. In CI, an SSH session
-without a TTY, or another automation context, pass every required option
-explicitly. `-AI` (also accepted as `--ai-context`) prints stable JSON describing
-the commands, defaults, platform support, and security boundary without reading
-Docker or touching the filesystem:
+file, browser origins, and either a local Docker socket or a remote Engine mTLS
+connection. In CI, an SSH session without a TTY, or another automation context,
+pass every required option explicitly. `-AI` (also accepted as `--ai-context`)
+prints stable JSON describing the commands, defaults, platform support, and
+security boundary without reading Docker or touching the filesystem:
 
 ```powershell
 npx --yes harbor-desk install-server -AI
@@ -187,7 +187,29 @@ npx --yes harbor-desk install-server \
 production deployment or a substitute for TLS. Put the preview behind a
 TLS-terminating reverse proxy and a firewall, restrict `--allowed-origin` to
 origins you control, and protect the provider file. The install plan reports
-the public warning but never prints provider credentials.
+the public warning but never prints provider credentials. The remote Engine mTLS
+options below protect the gateway-to-Engine connection; they do not terminate
+client-to-gateway TLS or replace a public reverse proxy.
+
+To connect the server gateway to a remote Docker Engine without mounting the
+server Docker socket, pass an HTTPS Engine endpoint and all three mTLS files:
+
+```bash
+npx --yes harbor-desk install-server \
+  --directory /srv/harbor-desk-remote \
+  --engine-endpoint https://engine.example.com:2376 \
+  --engine-ca-file /etc/harbor-desk/engine/ca.pem \
+  --engine-cert-file /etc/harbor-desk/engine/client-cert.pem \
+  --engine-key-file /etc/harbor-desk/engine/client-key.pem
+```
+
+The installer validates that each file is a non-empty regular file, keeps the
+source files on the server host, and bind-mounts them read-only at
+`/run/harbor-desk/engine` inside the gateway container. The generated
+`.harbor-desk.env` contains only the source paths and is owner-readable; the
+certificate contents are not copied into the install directory, emitted in the
+AI context, or returned to a client. Remote Engine mode and
+`--allow-local-engine-socket` are mutually exclusive.
 
 `install-server` is a **development preview** installer, not a production
 control-plane installer. It uses the documented server-local Engine overlay;
@@ -364,6 +386,11 @@ is a server-side development fixture. It can bind the host Docker socket into
 the gateway container so the gateway can connect to a Docker Engine on the same
 server. It is not a client-local Engine fallback.
 
+For a remote server, use the **infra/compose/docker-compose.preview.remote-engine.yml**
+overlay through the four `--engine-*` options instead. It keeps Docker Engine
+access inside the gateway and uses HTTPS plus CA/client certificate/client key
+mTLS without mounting a server Docker socket.
+
 A bind mount marked read-only protects the socket file mount, not the Docker
 API. A process that can use that socket can generally perform highly privileged
 Docker operations on the server. Use this overlay only on a controlled
@@ -393,8 +420,9 @@ private key, OIDC client secret, access token, or Docker endpoint credential.
 The reference Compose services bind published ports to loopback to reduce
 accidental network exposure.
 
-For production, use TLS, AUTH_MODE=oidc, an explicit Engine hostname allowlist,
-HTTPS Engine endpoints with server-side mTLS material, and an injected
+For production, use client-to-gateway TLS (normally at a reverse proxy),
+AUTH_MODE=oidc, an explicit Engine hostname allowlist, HTTPS Engine endpoints
+with server-side mTLS material, and an injected
 Vault/KMS-backed secret store. PostgreSQL/Redis persistence, a production
 Vault/KMS adapter, durable host grants, workers, and the remaining adapters
 are not complete in this vertical slice. Do not describe it as production-ready

@@ -7,6 +7,23 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-29
+
+### Added
+
+- The server-side `npx harbor-desk install-server` flow now supports a remote
+  Docker Engine over HTTPS mTLS with `--engine-endpoint`, CA, client
+  certificate, and client private key file options.
+- Remote Engine credentials stay on the server host and are mounted read-only
+  into the gateway container without mounting a Docker socket. The interactive
+  setup and `-AI` context describe both Engine transport choices.
+
+### Security
+
+- Remote Engine mode requires HTTPS and all three mTLS files, validates them
+  before writing the install target, and rejects mixing remote mTLS with the
+  privileged local Docker socket mount.
+
 ## [0.5.1] - 2026-08-28
 
 ### Added
@@ -217,7 +234,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.2
 [0.5.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.4.0

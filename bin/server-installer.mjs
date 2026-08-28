@@ -6,6 +6,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import net from "node:net";
@@ -29,6 +30,10 @@ const defaultAllowedOrigins = Object.freeze([
 // the local-engine Compose overlay pins the bind target. The Engine endpoint the
 // gateway dials is therefore this container path, never the host-side source.
 const containerEngineSocket = "/var/run/docker.sock";
+const containerEngineTlsDirectory = "/run/harbor-desk/engine";
+const containerEngineCaFile = `${containerEngineTlsDirectory}/ca.pem`;
+const containerEngineCertFile = `${containerEngineTlsDirectory}/client-cert.pem`;
+const containerEngineKeyFile = `${containerEngineTlsDirectory}/client-key.pem`;
 
 // Docker Desktop hosts resolve the "/var/run/docker.sock" bind source inside
 // their own Linux VM rather than on the host filesystem, so the same Compose
@@ -216,6 +221,36 @@ function normalizeEngineSocket(value, platform, cwd) {
   return socket;
 }
 
+function normalizeEngineEndpoint(value) {
+  const endpoint = safeEnvironmentValue(value, "--engine-endpoint");
+  let parsed;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    throw new ServerInstallerError(
+      "--engine-endpoint must be a valid HTTPS Docker Engine URL.",
+    );
+  }
+
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new ServerInstallerError(
+      "--engine-endpoint must use HTTPS without credentials, query parameters, or a fragment.",
+    );
+  }
+
+  return endpoint;
+}
+
+function normalizeEngineTlsFile(value, option, cwd) {
+  return resolve(cwd, safeEnvironmentValue(value, option));
+}
+
 function validateInstallDirectory(directory, cwd) {
   if (!directory) {
     throw new ServerInstallerError(
@@ -248,6 +283,29 @@ function validateServerInstallOptions(options) {
 
   if (options.aiContext) return;
 
+  const engineTlsFiles = [
+    options.engineCaFile,
+    options.engineCertFile,
+    options.engineKeyFile,
+  ];
+  const hasEngineTlsMaterial = engineTlsFiles.some(Boolean);
+  if (options.engineEndpoint) {
+    if (options.engineSocketExplicit || options.allowLocalEngineSocket) {
+      throw new ServerInstallerError(
+        "--engine-endpoint cannot be combined with --engine-socket or --allow-local-engine-socket; choose one Engine transport.",
+      );
+    }
+    if (!engineTlsFiles.every(Boolean)) {
+      throw new ServerInstallerError(
+        "--engine-endpoint requires --engine-ca-file, --engine-cert-file, and --engine-key-file for server-side mTLS.",
+      );
+    }
+  } else if (hasEngineTlsMaterial) {
+    throw new ServerInstallerError(
+      "--engine-ca-file, --engine-cert-file, and --engine-key-file require --engine-endpoint.",
+    );
+  }
+
   if (bindHost === "0.0.0.0" && authMode !== "oidc") {
     throw new ServerInstallerError(
       "Public binding (--bind-host 0.0.0.0/--public) requires --auth-mode oidc; development authentication cannot be exposed on a network.",
@@ -276,6 +334,11 @@ export function parseServerInstallArgs(
     port: defaultPort,
     bindHost: defaultBindHost,
     engineSocket: defaultEngineSocket,
+    engineSocketExplicit: false,
+    engineEndpoint: undefined,
+    engineCaFile: undefined,
+    engineCertFile: undefined,
+    engineKeyFile: undefined,
     engineName: defaultEngineName,
     projectName: defaultProjectName,
     authMode: defaultAuthMode,
@@ -313,6 +376,25 @@ export function parseServerInstallArgs(
         break;
       case "--engine-socket":
         options.engineSocket = optionValue(arguments_, index, argument);
+        options.engineSocketExplicit = true;
+        index += 1;
+        break;
+      case "--engine-endpoint":
+        options.engineEndpoint = normalizeEngineEndpoint(
+          optionValue(arguments_, index, argument),
+        );
+        index += 1;
+        break;
+      case "--engine-ca-file":
+        options.engineCaFile = optionValue(arguments_, index, argument);
+        index += 1;
+        break;
+      case "--engine-cert-file":
+        options.engineCertFile = optionValue(arguments_, index, argument);
+        index += 1;
+        break;
+      case "--engine-key-file":
+        options.engineKeyFile = optionValue(arguments_, index, argument);
         index += 1;
         break;
       case "--engine-name":
@@ -354,15 +436,31 @@ export function parseServerInstallArgs(
 
   validateServerInstallOptions(options);
 
+  const { engineSocketExplicit, ...publicOptions } = options;
   return {
-    ...options,
+    ...publicOptions,
     platform,
     directory: options.aiContext
       ? options.directory
         ? validateInstallDirectory(options.directory, cwd)
         : undefined
       : validateInstallDirectory(options.directory, cwd),
-    engineSocket: normalizeEngineSocket(options.engineSocket, platform, cwd),
+    engineSocket: options.engineEndpoint
+      ? undefined
+      : normalizeEngineSocket(options.engineSocket, platform, cwd),
+    engineCaFile: options.engineCaFile
+      ? normalizeEngineTlsFile(options.engineCaFile, "--engine-ca-file", cwd)
+      : undefined,
+    engineCertFile: options.engineCertFile
+      ? normalizeEngineTlsFile(
+          options.engineCertFile,
+          "--engine-cert-file",
+          cwd,
+        )
+      : undefined,
+    engineKeyFile: options.engineKeyFile
+      ? normalizeEngineTlsFile(options.engineKeyFile, "--engine-key-file", cwd)
+      : undefined,
     engineName: safeEnvironmentValue(options.engineName, "--engine-name"),
     projectName: validateProjectName(options.projectName),
     oidcProvidersFile: options.oidcProvidersFile
@@ -394,6 +492,10 @@ export function serverInstallerUsage() {
     "  --bind-host <host>              127.0.0.1 (default) or 0.0.0.0 for network access.",
     "  --public                        Shorthand for --bind-host 0.0.0.0.",
     `  --engine-socket <path>          Engine-side Docker socket to mount (default: ${defaultEngineSocket}).`,
+    "  --engine-endpoint <url>         HTTPS Docker Engine endpoint for server-side mTLS instead of a socket.",
+    "  --engine-ca-file <path>         CA certificate file for --engine-endpoint.",
+    "  --engine-cert-file <path>       Client certificate file for --engine-endpoint.",
+    "  --engine-key-file <path>        Client private key file for --engine-endpoint.",
     `  --engine-name <name>            Display name for the server Engine (default: ${defaultEngineName}).`,
     `  --project-name <name>           Docker Compose project (default: ${defaultProjectName}).`,
     "  --auth-mode <mode>              dev (local only) or oidc (required for public).",
@@ -405,6 +507,8 @@ export function serverInstallerUsage() {
     "",
     "On Docker Desktop the socket path is resolved by the Engine inside its own Linux VM,",
     "so it stays a POSIX path on Windows and macOS as well as on a native Linux Engine.",
+    "For a remote Engine, pass all three mTLS files; they are mounted read-only only",
+    "inside the gateway container and are never copied into the client or printed.",
     "",
     "The installer creates a development preview gateway. Public binding requires OIDC",
     "and should still be placed behind TLS/reverse proxy and a firewall. A Docker socket",
@@ -443,9 +547,12 @@ export function buildServerInstallPlan(
         options.directory,
         "infra",
         "compose",
-        "docker-compose.preview.local-engine.yml",
+        options.engineEndpoint
+          ? "docker-compose.preview.remote-engine.yml"
+          : "docker-compose.preview.local-engine.yml",
       ),
     ],
+    engineMode: options.engineEndpoint ? "remote-mtls" : "local-socket",
     healthUrl: `http://127.0.0.1:${options.port}/health/live`,
   };
 }
@@ -662,6 +769,40 @@ async function assertSocket(socketPath, platform) {
   }
 }
 
+async function assertEngineTlsFiles(plan) {
+  const files = [
+    ["CA certificate", plan.engineCaFile],
+    ["client certificate", plan.engineCertFile],
+    ["client private key", plan.engineKeyFile],
+  ];
+
+  for (const [label, file] of files) {
+    if (!file) {
+      throw new ServerInstallerError(
+        `Remote Engine mTLS requires a ${label} file.`,
+      );
+    }
+
+    let details;
+    try {
+      details = await stat(file);
+    } catch (error) {
+      if (error && typeof error === "object" && error.code === "ENOENT") {
+        throw new ServerInstallerError(
+          `Remote Engine ${label} file was not found at ${file}.`,
+        );
+      }
+      throw error;
+    }
+
+    if (!details.isFile() || details.size === 0) {
+      throw new ServerInstallerError(
+        `Remote Engine ${label} path must be a non-empty regular file: ${file}.`,
+      );
+    }
+  }
+}
+
 async function assertPortAvailable(port, host) {
   await new Promise((resolvePromise, reject) => {
     const listener = net.createServer();
@@ -788,9 +929,20 @@ async function writeServerEnvironment(plan, randomBytesFn, oidcProvidersJson) {
     SECRET_MASTER_KEY: secret,
     // The gateway dials the socket at its in-container path, which the overlay
     // pins, so this stays correct even when the host-side source differs.
-    DEV_ENGINE_HOST: `unix://${containerEngineSocket}`,
+    DEV_ENGINE_HOST: plan.engineEndpoint ?? `unix://${containerEngineSocket}`,
     DEV_ENGINE_DISPLAY_NAME: plan.engineName,
-    DOCKER_SOCKET_PATH: plan.engineSocket,
+    ...(plan.engineEndpoint
+      ? {
+          ENGINE_CA_FILE: plan.engineCaFile,
+          ENGINE_CERT_FILE: plan.engineCertFile,
+          ENGINE_KEY_FILE: plan.engineKeyFile,
+          DEV_ENGINE_CA_FILE: containerEngineCaFile,
+          DEV_ENGINE_CERT_FILE: containerEngineCertFile,
+          DEV_ENGINE_KEY_FILE: containerEngineKeyFile,
+        }
+      : {
+          DOCKER_SOCKET_PATH: plan.engineSocket,
+        }),
     HARBOR_GATEWAY_PORT: String(plan.port),
     HARBOR_GATEWAY_BIND_HOST: plan.bindHost,
     AUTH_MODE: plan.authMode,
@@ -821,7 +973,10 @@ async function writeInstallMarker(plan) {
     authMode: plan.authMode,
     gatewayPort: plan.port,
     loopbackPort: plan.port,
-    engineSocket: plan.engineSocket,
+    engineMode: plan.engineMode,
+    ...(plan.engineEndpoint
+      ? { engineEndpoint: plan.engineEndpoint }
+      : { engineSocket: plan.engineSocket }),
   };
 
   await writeFile(plan.markerFile, `${JSON.stringify(marker, null, 2)}\n`, {
@@ -878,6 +1033,7 @@ async function waitForGatewayHealth(
 
 export function formatServerInstallPlan(plan) {
   const isPublic = plan.bindHost === "0.0.0.0";
+  const isRemoteEngine = plan.engineMode === "remote-mtls";
   return [
     "Harbor Desk preview gateway install plan",
     `  Host platform: ${supportedPlatforms.get(plan.platform)?.label ?? plan.platform}`,
@@ -886,7 +1042,11 @@ export function formatServerInstallPlan(plan) {
     `  Gateway: ${plan.healthUrl} (${isPublic ? "local health check" : "loopback only"})`,
     `  Network binding: ${plan.bindHost}:${plan.port} (${isPublic ? "public network" : "loopback only"})`,
     `  Authentication: ${plan.authMode}`,
-    `  Docker socket: ${plan.engineSocket}`,
+    ...(isRemoteEngine
+      ? [
+          `  Docker Engine: ${plan.engineEndpoint} (server-side mTLS; material mounted read-only)`,
+        ]
+      : [`  Docker socket: ${plan.engineSocket}`]),
     `  Server Engine name: ${plan.engineName}`,
     ...(isPublic
       ? [
@@ -914,7 +1074,14 @@ export async function installServer(
     );
   }
 
-  if (!options.allowLocalEngineSocket) {
+  const isRemoteEngine = Boolean(options.engineEndpoint);
+  if (isRemoteEngine && options.allowLocalEngineSocket) {
+    throw new ServerInstallerError(
+      "--engine-endpoint cannot be combined with --allow-local-engine-socket; choose one Engine transport.",
+    );
+  }
+
+  if (!isRemoteEngine && !options.allowLocalEngineSocket) {
     throw new ServerInstallerError(
       "Refusing to mount a Docker socket without --allow-local-engine-socket. That socket grants highly privileged control of the server.",
     );
@@ -932,7 +1099,11 @@ export async function installServer(
   const oidcProvidersJson = await readOidcProviders(plan);
   await assertPayloadExists(plan.root);
   await assertEmptyTarget(plan.directory);
-  await assertSocket(plan.engineSocket, platform);
+  if (isRemoteEngine) {
+    await assertEngineTlsFiles(plan);
+  } else {
+    await assertSocket(plan.engineSocket, platform);
+  }
   await assertPortAvailable(plan.port, plan.bindHost);
   const runner = await resolveDockerRunner(run, platform);
 
@@ -991,7 +1162,8 @@ export function serverInstallerAiContext() {
             "dev or OIDC authentication",
             "OIDC provider JSON file when OIDC is selected",
             "additional browser origins",
-            "explicit acknowledgement for the server Docker socket mount",
+            "local Docker socket or remote Engine mTLS connection",
+            "explicit acknowledgement for the server Docker socket mount when local mode is selected",
           ],
           nonTtyBehavior:
             "Fails with usage guidance instead of waiting for stdin indefinitely.",
@@ -1002,6 +1174,8 @@ export function serverInstallerAiContext() {
             "npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
           publicExample:
             "npx --yes harbor-desk install-server --directory /srv/harbor-desk-public --public --auth-mode oidc --oidc-providers-file ./oidc-providers.json --allowed-origin https://client.example.com --allow-local-engine-socket",
+          remoteMtlsExample:
+            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-remote --engine-endpoint https://engine.example.com:2376 --engine-ca-file ./engine-ca.pem --engine-cert-file ./engine-client-cert.pem --engine-key-file ./engine-client-key.pem",
           contextFlags: ["-AI", "--ai-context"],
         },
       },
@@ -1030,7 +1204,7 @@ export function serverInstallerAiContext() {
           requiredOptions: [
             "--auth-mode oidc",
             "--oidc-providers-file <path>",
-            "--allow-local-engine-socket",
+            "one Engine transport: --allow-local-engine-socket or remote mTLS options",
           ],
           deploymentBoundary:
             "Network reachability is enabled, but this remains a preview gateway and must be placed behind TLS or a reverse proxy and a firewall.",
@@ -1050,11 +1224,33 @@ export function serverInstallerAiContext() {
         ],
         publicRequirement: "Every configured OIDC endpoint must use HTTPS.",
       },
+      engineConnections: {
+        localSocket: {
+          requiredOption: "--allow-local-engine-socket",
+          endpoint: `unix://${containerEngineSocket}`,
+          description:
+            "Mounts the server Docker socket read-only into the gateway container; the socket remains highly privileged.",
+        },
+        remoteMtls: {
+          requiredOptions: [
+            "--engine-endpoint <https-url>",
+            "--engine-ca-file <path>",
+            "--engine-cert-file <path>",
+            "--engine-key-file <path>",
+          ],
+          description:
+            "Connects from the gateway container to an HTTPS Docker Engine using a server-side CA, client certificate, and client private key.",
+          containerMount:
+            "The three files are bind-mounted read-only at /run/harbor-desk/engine and are not copied into the install payload.",
+        },
+      },
       validation: [
         "The destination must be empty or not yet exist.",
         "The published gateway port must be available on the selected bind host.",
         "OIDC configuration must be a non-empty JSON array of provider objects.",
         "Public OIDC endpoints must use HTTPS.",
+        "Remote Engine mode requires an HTTPS endpoint and all three mTLS files; it cannot be combined with a socket mount.",
+        "Remote Engine certificate paths must be non-empty regular files before installation starts.",
         "The installer refuses to mount the server Docker socket without explicit acknowledgement.",
         "--dry-run validates prerequisites without writing files or starting containers.",
       ],
@@ -1062,6 +1258,7 @@ export function serverInstallerAiContext() {
         "Docker Engine access stays inside the server-side gateway container.",
         "The Electron renderer and browser client never receive the Engine socket or Docker credentials.",
         "Provider configuration is stored only in the owner-readable server environment file and is never included in this context or the install plan.",
+        "Remote Engine mTLS files stay on the server host, are mounted read-only into the gateway, and are never returned to the client.",
         "Public binding does not make this installer production-ready; durable persistence, secret management, TLS termination, and operational controls remain deployment responsibilities.",
       ],
     },
@@ -1133,20 +1330,64 @@ async function promptServerInstallArguments({
       arguments_.push("--allowed-origin", allowedOrigins);
     }
 
-    const socketAcknowledgement = await ask(
-      "Mount the server Docker socket into the gateway? Type yes to acknowledge the privilege: ",
-    );
+    const engineMode = (
+      await ask("Docker Engine connection (local socket/remote mTLS) [local]: ")
+    )
+      .trim()
+      .toLowerCase();
     if (
-      !parseBooleanAnswer(
-        socketAcknowledgement,
-        "Docker socket acknowledgement",
-      )
+      engineMode &&
+      !["local", "loopback", "socket", "remote", "mtls"].includes(engineMode)
     ) {
       throw new ServerInstallerError(
-        "The server Docker socket mount was not acknowledged; installation stopped.",
+        "Docker Engine connection must be local socket or remote mTLS.",
       );
     }
-    arguments_.push("--allow-local-engine-socket");
+
+    if (["remote", "mtls"].includes(engineMode)) {
+      const endpoint = (
+        await ask("Remote HTTPS Engine endpoint (required): ")
+      ).trim();
+      const caFile = (
+        await ask("Engine CA certificate file (required): ")
+      ).trim();
+      const certFile = (
+        await ask("Engine client certificate file (required): ")
+      ).trim();
+      const keyFile = (
+        await ask("Engine client private key file (required): ")
+      ).trim();
+      if (!endpoint || !caFile || !certFile || !keyFile) {
+        throw new ServerInstallerError(
+          "Remote Engine mTLS mode requires an endpoint, CA certificate, client certificate, and client private key file.",
+        );
+      }
+      arguments_.push(
+        "--engine-endpoint",
+        endpoint,
+        "--engine-ca-file",
+        caFile,
+        "--engine-cert-file",
+        certFile,
+        "--engine-key-file",
+        keyFile,
+      );
+    } else {
+      const socketAcknowledgement = await ask(
+        "Mount the server Docker socket into the gateway? Type yes to acknowledge the privilege: ",
+      );
+      if (
+        !parseBooleanAnswer(
+          socketAcknowledgement,
+          "Docker socket acknowledgement",
+        )
+      ) {
+        throw new ServerInstallerError(
+          "The server Docker socket mount was not acknowledged; installation stopped.",
+        );
+      }
+      arguments_.push("--allow-local-engine-socket");
+    }
 
     return arguments_;
   } finally {

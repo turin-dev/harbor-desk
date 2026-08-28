@@ -8,6 +8,11 @@
 - Public preview provider endpoints must use HTTPS, and the published gateway
   port must still sit behind TLS or a reverse proxy plus a firewall. Public bind
   is network reachability, not production readiness.
+- The standalone installer supports a remote Docker Engine over HTTPS mTLS with
+  `--engine-endpoint`, `--engine-ca-file`, `--engine-cert-file`, and
+  `--engine-key-file`. The three files are validated before installation and
+  mounted read-only only inside the gateway container; they are not copied into
+  the client payload or printed.
 - The installer can print a machine-readable `-AI` setup context. It contains
   commands and trust-boundary information only; provider contents and
   credentials are never included in that output or the formatted install plan.

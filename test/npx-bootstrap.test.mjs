@@ -86,6 +86,16 @@ test("prints machine-readable AI setup context without requiring a directory", (
     assert.equal(context.defaults.authMode, "dev");
     assert.equal(context.networkModes.public.bindHost, "0.0.0.0");
     assert.match(context.interaction.nonInteractive.publicExample, /--public/);
+    assert.match(
+      context.interaction.nonInteractive.remoteMtlsExample,
+      /--engine-endpoint https:\/\/engine\.example\.com:2376/,
+    );
+    assert.deepEqual(context.engineConnections.remoteMtls.requiredOptions, [
+      "--engine-endpoint <https-url>",
+      "--engine-ca-file <path>",
+      "--engine-cert-file <path>",
+      "--engine-key-file <path>",
+    ]);
     assert.doesNotMatch(
       result.stdout,
       /SECRET_MASTER_KEY|clientSecret|access_token/,
@@ -184,6 +194,48 @@ test("parses an explicitly public OIDC server install plan", () => {
     formatServerInstallPlan(plan),
     /TLS\/reverse proxy and a firewall/,
   );
+});
+
+test("parses a remote Docker Engine mTLS install plan without a socket mount", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "harbor-desk-engine-mtls-"));
+  try {
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+      ],
+      { cwd: sandbox, platform: "win32" },
+    );
+    const plan = buildServerInstallPlan(options, {
+      root: process.cwd(),
+      version: "0.5.2-test",
+    });
+
+    assert.equal(options.engineEndpoint, "https://engine.example.com:2376");
+    assert.equal(options.engineSocket, undefined);
+    assert.equal(options.engineCaFile, join(sandbox, "engine-ca.pem"));
+    assert.equal(
+      options.engineCertFile,
+      join(sandbox, "engine-client-cert.pem"),
+    );
+    assert.equal(options.engineKeyFile, join(sandbox, "engine-client-key.pem"));
+    assert.equal(plan.engineMode, "remote-mtls");
+    assert.match(
+      plan.composeFiles[1],
+      /docker-compose\.preview\.remote-engine\.yml$/,
+    );
+    assert.match(formatServerInstallPlan(plan), /server-side mTLS/);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test("requires an explicit destination and rejects malformed server options", () => {
@@ -298,6 +350,22 @@ test("passes installer authentication and bind settings to the preview Compose t
   assert.match(
     compose,
     /- "\$\{HARBOR_GATEWAY_BIND_HOST:-127\.0\.0\.1\}:\$\{HARBOR_GATEWAY_PORT:-4311\}:4310"/,
+  );
+
+  const remoteCompose = await readFile(
+    new URL(
+      "../infra/compose/docker-compose.preview.remote-engine.yml",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    remoteCompose,
+    /DEV_ENGINE_CA_FILE: \/run\/harbor-desk\/engine\/ca\.pem/,
+  );
+  assert.match(
+    remoteCompose,
+    /source: \$\{ENGINE_KEY_FILE:\?Set ENGINE_KEY_FILE/,
   );
 });
 
@@ -431,6 +499,152 @@ test("writes validated public OIDC settings to the protected environment and Com
     }
     await rm(sandbox, { recursive: true, force: true });
   }
+});
+
+test("installs remote Engine mTLS configuration without mounting the Docker socket", async () => {
+  const sandbox = await mkdtemp(
+    join(tmpdir(), "harbor-desk-engine-mtls-install-"),
+  );
+  const destination = join(sandbox, "install");
+  const tlsFiles = {
+    ca: join(sandbox, "engine-ca.pem"),
+    cert: join(sandbox, "engine-client-cert.pem"),
+    key: join(sandbox, "engine-client-key.pem"),
+  };
+  for (const file of Object.values(tlsFiles)) {
+    await writeFile(file, "test certificate material\n");
+  }
+
+  let prepared = false;
+  try {
+    const prepare = spawnSync(
+      process.execPath,
+      ["scripts/prepare-npm-server-payload.mjs"],
+      { cwd: packageRoot, encoding: "utf8" },
+    );
+    assert.equal(prepare.status, 0, prepare.stderr);
+    prepared = true;
+
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        destination,
+        "--port",
+        "49232",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        tlsFiles.ca,
+        "--engine-cert-file",
+        tlsFiles.cert,
+        "--engine-key-file",
+        tlsFiles.key,
+      ],
+      { cwd: packageRoot, platform: "win32" },
+    );
+    const calls = [];
+    const result = await installServer(options, {
+      root: packageRoot,
+      platform: "win32",
+      version: "0.5.2-test",
+      randomBytesFn: () => Buffer.alloc(32, 0x61),
+      run: async (...arguments_) => calls.push(arguments_),
+      waitForHealth: async () => {},
+    });
+
+    assert.equal(result.installed, true);
+    assert.equal(result.plan.engineMode, "remote-mtls");
+    assert.equal(result.plan.engineSocket, undefined);
+    assert.match(
+      calls[1][1].join(" "),
+      /docker-compose\.preview\.remote-engine\.yml/,
+    );
+
+    const environment = await readFile(result.plan.environmentFile, "utf8");
+    const readDotenvJson = (name) => {
+      const line = environment
+        .split("\n")
+        .find((entry) => entry.startsWith(`${name}=`));
+      assert.ok(line, `missing ${name}`);
+      return JSON.parse(line.slice(name.length + 1));
+    };
+    assert.equal(
+      readDotenvJson("DEV_ENGINE_HOST"),
+      "https://engine.example.com:2376",
+    );
+    assert.equal(readDotenvJson("ENGINE_CA_FILE"), tlsFiles.ca);
+    assert.equal(
+      readDotenvJson("DEV_ENGINE_KEY_FILE"),
+      "/run/harbor-desk/engine/client-key.pem",
+    );
+    assert.doesNotMatch(environment, /DOCKER_SOCKET_PATH/);
+
+    const marker = JSON.parse(await readFile(result.plan.markerFile, "utf8"));
+    assert.equal(marker.engineMode, "remote-mtls");
+    assert.equal(marker.engineEndpoint, "https://engine.example.com:2376");
+    assert.doesNotMatch(
+      JSON.stringify(marker),
+      /engine-client-key|private key/i,
+    );
+  } finally {
+    if (prepared) {
+      const clean = spawnSync(
+        process.execPath,
+        ["scripts/prepare-npm-server-payload.mjs", "--clean"],
+        { cwd: packageRoot, encoding: "utf8" },
+      );
+      assert.equal(clean.status, 0, clean.stderr);
+    }
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("requires complete remote Engine mTLS material and rejects mixed transports", () => {
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+      ]),
+    /requires --engine-ca-file, --engine-cert-file, and --engine-key-file/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "http://engine.example.com:2375",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+      ]),
+    /must use HTTPS/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+        "--allow-local-engine-socket",
+      ]),
+    /cannot be combined with --engine-socket or --allow-local-engine-socket/,
+  );
 });
 
 test("supports a server-side Docker host on Linux, Windows, and macOS", () => {
