@@ -76,7 +76,7 @@ ${nestChangelogHeadings(changelogSection)}
 - **Linux:** x86_64 AppImage and Debian package
 - **macOS:** x64 and arm64 DMG/ZIP packages and blockmaps
 - **Server:** attached GitHub release tarball \`${tarball}\`
-- **Integrity:** \`SHA256SUMS\` contains SHA-256 checksums for every attached asset
+- **Integrity:** \`SHA256SUMS\` contains SHA-256 checksums for every distributable asset
 
 ### npm distribution
 

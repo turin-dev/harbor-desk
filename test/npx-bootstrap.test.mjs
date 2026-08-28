@@ -357,6 +357,11 @@ test("uses Node 24 artifact actions and distinguishes release tarballs from npm"
   );
   assert.match(workflow, /npm view "harbor-desk@\$\{version\}" version/);
   assert.match(workflow, /node scripts\/generate-release-notes\.mjs/);
+  assert.match(
+    workflow,
+    /find release-assets -maxdepth 1 -type f ! -name SHA256SUMS -print0/,
+    "the checksum manifest must not hash itself while it is being written",
+  );
   assert.doesNotMatch(
     workflow,
     /Server: npm package for `npx --yes harbor-desk install-server`/,
@@ -381,6 +386,8 @@ test("generates versioned release notes from the changelog and npm state", async
   });
   assert.match(unpublished, /#### Fixed/);
   assert.match(unpublished, /latest version was `v0\.2\.0`/);
+  assert.match(unpublished, /checksums for every distributable asset/);
+  assert.doesNotMatch(unpublished, /checksums for every attached asset/);
   assert.match(
     unpublished,
     /npx --yes --package \.\/harbor-desk-0\.3\.1\.tgz harbor-desk --version/,

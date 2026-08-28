@@ -7,6 +7,11 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release checksum generation now excludes `SHA256SUMS` itself, preventing the
+  manifest from publishing an impossible self-referential hash.
+
 ## [0.3.2] - 2026-08-28
 
 ### Fixed
