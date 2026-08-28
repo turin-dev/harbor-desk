@@ -25,6 +25,29 @@ origin is `null`. The main process keeps the token and exposes a narrow preload
 getter; diagnostics must never include it. This is a loopback channel guard,
 not a replacement for user authentication or process isolation.
 
+## Standalone server preview
+
+The optional `npx harbor-desk install-server` flow copies a minimal gateway
+payload to a user-selected empty directory and runs it with the server-local
+Engine overlay. The default published port binds to exact loopback and uses
+development authentication. Running the command with no arguments in a TTY
+opens a setup questionnaire; automation must pass explicit options or use
+`-AI`/`--ai-context` to retrieve the stable setup contract without starting
+anything.
+
+`--public` is an explicit network-binding opt-in. It changes only the host-side
+published port to `0.0.0.0`; the gateway still listens on its internal container
+port. Public binding requires OIDC and a non-empty provider JSON file, and the
+installer rejects non-HTTPS provider endpoints. This is an authenticated
+preview path, not a production control plane: TLS or reverse-proxy termination,
+firewall policy, narrow allowed origins, durable persistence, secret management,
+and monitoring remain deployment responsibilities.
+
+The provider file is copied into an owner-readable environment file for the
+gateway and is not included in the AI context or formatted plan. The Docker
+socket remains an explicit server-side high-privilege mount; it is never handed
+to the Electron renderer or a browser client.
+
 ## Host connection
 
 Production host records use an HTTPS Docker Engine endpoint and server-side

@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import net from "node:net";
+import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,6 +18,12 @@ const defaultPort = 4311;
 const defaultEngineSocket = "/var/run/docker.sock";
 const defaultProjectName = "harbor-desk-server";
 const defaultEngineName = "Server local Docker Engine";
+const defaultBindHost = "127.0.0.1";
+const defaultAuthMode = "dev";
+const defaultAllowedOrigins = Object.freeze([
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
 
 // The gateway container always receives the Engine socket at this path, because
 // the local-engine Compose overlay pins the bind target. The Engine endpoint the
@@ -108,6 +115,66 @@ function parsePort(value) {
   return port;
 }
 
+function parseBindHost(value) {
+  const bindHost = safeEnvironmentValue(value, "--bind-host");
+  if (bindHost !== "127.0.0.1" && bindHost !== "0.0.0.0") {
+    throw new ServerInstallerError(
+      "--bind-host currently accepts only 127.0.0.1 or 0.0.0.0.",
+    );
+  }
+  return bindHost;
+}
+
+function parseAuthMode(value) {
+  if (value !== "dev" && value !== "oidc") {
+    throw new ServerInstallerError("--auth-mode must be either dev or oidc.");
+  }
+  return value;
+}
+
+function parseBooleanAnswer(value, option) {
+  const normalized = value.trim().toLowerCase();
+  if (["y", "yes", "true", "1"].includes(normalized)) return true;
+  if (["n", "no", "false", "0", ""].includes(normalized)) return false;
+  throw new ServerInstallerError(option + " expects yes or no.");
+}
+
+function parseAllowedOrigin(value) {
+  const origin = safeEnvironmentValue(value, "--allowed-origin");
+  let parsed;
+
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new ServerInstallerError(
+      "--allowed-origin must be an http or https origin without a path, query, or fragment.",
+    );
+  }
+
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new ServerInstallerError(
+      "--allowed-origin must be an http or https origin without a path, query, or fragment.",
+    );
+  }
+
+  return parsed.origin;
+}
+
+function parseAllowedOrigins(value) {
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map(parseAllowedOrigin);
+}
+
 function safeEnvironmentValue(value, option) {
   if (!value || /[\0\r\n]/.test(value)) {
     throw new ServerInstallerError(
@@ -166,6 +233,40 @@ function validateInstallDirectory(directory, cwd) {
   return resolved;
 }
 
+function validateServerInstallOptions(options) {
+  const bindHost = options.bindHost ?? defaultBindHost;
+  const authMode = options.authMode ?? defaultAuthMode;
+
+  if (bindHost !== "127.0.0.1" && bindHost !== "0.0.0.0") {
+    throw new ServerInstallerError(
+      "--bind-host currently accepts only 127.0.0.1 or 0.0.0.0.",
+    );
+  }
+  if (authMode !== "dev" && authMode !== "oidc") {
+    throw new ServerInstallerError("--auth-mode must be either dev or oidc.");
+  }
+
+  if (options.aiContext) return;
+
+  if (bindHost === "0.0.0.0" && authMode !== "oidc") {
+    throw new ServerInstallerError(
+      "Public binding (--bind-host 0.0.0.0/--public) requires --auth-mode oidc; development authentication cannot be exposed on a network.",
+    );
+  }
+
+  if (authMode === "oidc" && !options.oidcProvidersFile) {
+    throw new ServerInstallerError(
+      "--auth-mode oidc requires --oidc-providers-file with at least one provider.",
+    );
+  }
+
+  if (authMode === "dev" && options.oidcProvidersFile) {
+    throw new ServerInstallerError(
+      "--oidc-providers-file can only be used with --auth-mode oidc.",
+    );
+  }
+}
+
 export function parseServerInstallArgs(
   arguments_,
   { cwd = process.cwd(), platform = process.platform } = {},
@@ -173,9 +274,14 @@ export function parseServerInstallArgs(
   const options = {
     directory: undefined,
     port: defaultPort,
+    bindHost: defaultBindHost,
     engineSocket: defaultEngineSocket,
     engineName: defaultEngineName,
     projectName: defaultProjectName,
+    authMode: defaultAuthMode,
+    oidcProvidersFile: undefined,
+    allowedOrigins: [...defaultAllowedOrigins],
+    aiContext: false,
     allowLocalEngineSocket: false,
     dryRun: false,
   };
@@ -192,6 +298,19 @@ export function parseServerInstallArgs(
         options.port = parsePort(optionValue(arguments_, index, argument));
         index += 1;
         break;
+      case "--bind-host":
+        options.bindHost = parseBindHost(
+          optionValue(arguments_, index, argument),
+        );
+        index += 1;
+        break;
+      case "--public":
+        options.bindHost = "0.0.0.0";
+        break;
+      case "-AI":
+      case "--ai-context":
+        options.aiContext = true;
+        break;
       case "--engine-socket":
         options.engineSocket = optionValue(arguments_, index, argument);
         index += 1;
@@ -202,6 +321,22 @@ export function parseServerInstallArgs(
         break;
       case "--project-name":
         options.projectName = optionValue(arguments_, index, argument);
+        index += 1;
+        break;
+      case "--auth-mode":
+        options.authMode = parseAuthMode(
+          optionValue(arguments_, index, argument),
+        );
+        index += 1;
+        break;
+      case "--oidc-providers-file":
+        options.oidcProvidersFile = optionValue(arguments_, index, argument);
+        index += 1;
+        break;
+      case "--allowed-origin":
+        options.allowedOrigins.push(
+          ...parseAllowedOrigins(optionValue(arguments_, index, argument)),
+        );
         index += 1;
         break;
       case "--allow-local-engine-socket":
@@ -217,13 +352,31 @@ export function parseServerInstallArgs(
     }
   }
 
+  validateServerInstallOptions(options);
+
   return {
     ...options,
     platform,
-    directory: validateInstallDirectory(options.directory, cwd),
+    directory: options.aiContext
+      ? options.directory
+        ? validateInstallDirectory(options.directory, cwd)
+        : undefined
+      : validateInstallDirectory(options.directory, cwd),
     engineSocket: normalizeEngineSocket(options.engineSocket, platform, cwd),
     engineName: safeEnvironmentValue(options.engineName, "--engine-name"),
     projectName: validateProjectName(options.projectName),
+    oidcProvidersFile: options.oidcProvidersFile
+      ? resolve(
+          cwd,
+          safeEnvironmentValue(
+            options.oidcProvidersFile,
+            "--oidc-providers-file",
+          ),
+        )
+      : undefined,
+    allowedOrigins: [
+      ...new Set(options.allowedOrigins.map(parseAllowedOrigin)),
+    ],
   };
 }
 
@@ -233,20 +386,28 @@ export function serverInstallerUsage() {
     "",
     "Usage:",
     "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
+    "  npx --yes harbor-desk install-server -AI",
     "",
     "Options:",
     "  --directory <path>              Required empty destination directory.",
-    `  --port <number>                 Loopback gateway port (default: ${defaultPort}).`,
+    `  --port <number>                 Gateway port (default: ${defaultPort}).`,
+    "  --bind-host <host>              127.0.0.1 (default) or 0.0.0.0 for network access.",
+    "  --public                        Shorthand for --bind-host 0.0.0.0.",
     `  --engine-socket <path>          Engine-side Docker socket to mount (default: ${defaultEngineSocket}).`,
     `  --engine-name <name>            Display name for the server Engine (default: ${defaultEngineName}).`,
     `  --project-name <name>           Docker Compose project (default: ${defaultProjectName}).`,
+    "  --auth-mode <mode>              dev (local only) or oidc (required for public).",
+    "  --oidc-providers-file <path>    JSON provider configuration for OIDC mode.",
+    "  --allowed-origin <origin>       Additional browser origin; may be repeated.",
+    "  -AI, --ai-context               Print machine-readable AI setup context and exit.",
     "  --allow-local-engine-socket      Required acknowledgement before mounting the Docker socket.",
     "  --dry-run                       Validate the host and print the plan without writing or starting containers.",
     "",
     "On Docker Desktop the socket path is resolved by the Engine inside its own Linux VM,",
     "so it stays a POSIX path on Windows and macOS as well as on a native Linux Engine.",
     "",
-    "The installer creates a loopback-only development preview gateway. A Docker socket",
+    "The installer creates a development preview gateway. Public binding requires OIDC",
+    "and should still be placed behind TLS/reverse proxy and a firewall. A Docker socket",
     "is highly privileged even when its bind mount is marked read-only. This is not a",
     "production deployment command and it refuses non-empty directories or busy ports.",
   ].join("\n");
@@ -263,8 +424,14 @@ export function buildServerInstallPlan(
   options,
   { root = packageRoot, version = "unknown", platform } = {},
 ) {
+  const bindHost = options.bindHost ?? defaultBindHost;
+  const authMode = options.authMode ?? defaultAuthMode;
+
   return {
     ...options,
+    bindHost,
+    authMode,
+    allowedOrigins: options.allowedOrigins ?? [...defaultAllowedOrigins],
     root,
     version,
     platform: platform ?? options.platform ?? process.platform,
@@ -281,6 +448,156 @@ export function buildServerInstallPlan(
     ],
     healthUrl: `http://127.0.0.1:${options.port}/health/live`,
   };
+}
+
+function providerString(provider, key, index, { required = true } = {}) {
+  const value = provider[key];
+  if (value === undefined && !required) return undefined;
+  if (typeof value !== "string" || !value.trim() || /[\0\r\n]/.test(value)) {
+    throw new ServerInstallerError(
+      `OIDC provider ${index} has an invalid ${key}; expected a non-empty single-line string.`,
+    );
+  }
+  return value;
+}
+
+function validateOidcEndpoint(value, label, requireHttps) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new ServerInstallerError(
+      `OIDC provider ${label} must be a valid URL.`,
+    );
+  }
+
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.hash
+  ) {
+    throw new ServerInstallerError(
+      `OIDC provider ${label} must be an http or https URL without embedded credentials or a fragment.`,
+    );
+  }
+
+  if (requireHttps && parsed.protocol !== "https:") {
+    throw new ServerInstallerError(
+      `Public OIDC provider ${label} must use HTTPS.`,
+    );
+  }
+}
+
+function normalizeOidcProvider(provider, index, requireHttps) {
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
+    throw new ServerInstallerError(
+      `OIDC provider ${index} must be a JSON object.`,
+    );
+  }
+
+  const normalized = {
+    id: providerString(provider, "id", index).trim(),
+    displayName: providerString(provider, "displayName", index).trim(),
+    issuer: providerString(provider, "issuer", index).trim(),
+    audience: providerString(provider, "audience", index).trim(),
+    clientId: providerString(provider, "clientId", index).trim(),
+  };
+
+  validateOidcEndpoint(normalized.issuer, `${index}.issuer`, requireHttps);
+
+  for (const key of ["authorizationEndpoint", "tokenEndpoint", "jwksUri"]) {
+    const value = providerString(provider, key, index, { required: false });
+    if (value !== undefined) {
+      const endpoint = value.trim();
+      validateOidcEndpoint(endpoint, `${index}.${key}`, requireHttps);
+      normalized[key] = endpoint;
+    }
+  }
+
+  for (const key of ["roleClaim", "hostIdsClaim"]) {
+    const value = providerString(provider, key, index, { required: false });
+    if (value !== undefined) normalized[key] = value.trim();
+  }
+
+  if (Object.hasOwn(provider, "clientSecret")) {
+    normalized.clientSecret = providerString(provider, "clientSecret", index);
+  }
+
+  if (provider.scopes === undefined) {
+    normalized.scopes = ["openid", "profile", "email"];
+  } else if (
+    !Array.isArray(provider.scopes) ||
+    provider.scopes.length === 0 ||
+    provider.scopes.some(
+      (scope) =>
+        typeof scope !== "string" || !scope.trim() || /[\0\r\n]/.test(scope),
+    )
+  ) {
+    throw new ServerInstallerError(
+      `OIDC provider ${index} has invalid scopes; expected a non-empty string array.`,
+    );
+  } else {
+    normalized.scopes = provider.scopes.map((scope) => scope.trim());
+  }
+
+  return normalized;
+}
+
+function normalizeOidcProviders(parsed, { requireHttps = false } = {}) {
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new ServerInstallerError(
+      "The OIDC provider configuration must be a non-empty JSON array.",
+    );
+  }
+
+  const providers = parsed.map((provider, index) =>
+    normalizeOidcProvider(provider, index + 1, requireHttps),
+  );
+  const ids = new Set();
+  for (const provider of providers) {
+    if (ids.has(provider.id)) {
+      throw new ServerInstallerError(
+        `OIDC provider id "${provider.id}" is duplicated.`,
+      );
+    }
+    ids.add(provider.id);
+  }
+
+  return providers;
+}
+
+async function readOidcProviders(plan) {
+  if (plan.authMode !== "oidc") return "[]";
+  if (!plan.oidcProvidersFile) {
+    throw new ServerInstallerError(
+      "--auth-mode oidc requires --oidc-providers-file with at least one provider.",
+    );
+  }
+
+  let source;
+  try {
+    source = await readFile(plan.oidcProvidersFile, "utf8");
+  } catch {
+    throw new ServerInstallerError(
+      `Could not read the OIDC provider configuration file ${plan.oidcProvidersFile}.`,
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(source.replace(/^\uFEFF/, ""));
+  } catch {
+    throw new ServerInstallerError(
+      "The OIDC provider configuration file must contain valid JSON.",
+    );
+  }
+
+  return JSON.stringify(
+    normalizeOidcProviders(parsed, {
+      requireHttps: plan.bindHost === "0.0.0.0",
+    }),
+  );
 }
 
 async function assertPayloadExists(root) {
@@ -345,7 +662,7 @@ async function assertSocket(socketPath, platform) {
   }
 }
 
-export async function assertLoopbackPortAvailable(port) {
+async function assertPortAvailable(port, host) {
   await new Promise((resolvePromise, reject) => {
     const listener = net.createServer();
     let settled = false;
@@ -362,7 +679,7 @@ export async function assertLoopbackPortAvailable(port) {
         if (error.code === "EADDRINUSE") {
           reject(
             new ServerInstallerError(
-              `127.0.0.1:${port} is already in use. The installer will not replace an existing gateway or service.`,
+              `${host}:${port} is already in use. The installer will not replace an existing gateway or service.`,
             ),
           );
           return;
@@ -371,7 +688,7 @@ export async function assertLoopbackPortAvailable(port) {
       });
     });
 
-    listener.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+    listener.listen({ host, port, exclusive: true }, () => {
       listener.close((error) => {
         finish(() => (error ? reject(error) : resolvePromise()));
       });
@@ -379,15 +696,20 @@ export async function assertLoopbackPortAvailable(port) {
   });
 }
 
+export async function assertLoopbackPortAvailable(port) {
+  return assertPortAvailable(port, "127.0.0.1");
+}
+
 export function runCommand(
   command,
   arguments_,
-  { cwd, stdio = "inherit" } = {},
+  { cwd, stdio = "inherit", env = process.env } = {},
 ) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, arguments_, {
       cwd,
       stdio,
+      env,
       windowsHide: true,
     });
 
@@ -453,24 +775,40 @@ async function copyServerPayload(plan) {
   }
 }
 
-async function writeServerEnvironment(plan, randomBytesFn) {
+function formatDotenvValue(value) {
+  // Compose evaluates double-quoted .env values. Escape dollars before quoting
+  // so provider values containing "$" are not treated as Compose expressions.
+  const escaped = String(value).replace(/\$/g, "$$$$");
+  return JSON.stringify(escaped);
+}
+
+async function writeServerEnvironment(plan, randomBytesFn, oidcProvidersJson) {
   const secret = randomBytesFn(32).toString("base64");
-  const lines = [
-    `SECRET_MASTER_KEY=${secret}`,
+  const environment = {
+    SECRET_MASTER_KEY: secret,
     // The gateway dials the socket at its in-container path, which the overlay
     // pins, so this stays correct even when the host-side source differs.
-    `DEV_ENGINE_HOST=unix://${containerEngineSocket}`,
-    `DEV_ENGINE_DISPLAY_NAME=${JSON.stringify(plan.engineName)}`,
-    `DOCKER_SOCKET_PATH=${plan.engineSocket}`,
-    `HARBOR_GATEWAY_PORT=${plan.port}`,
-    `GATEWAY_VERSION=${plan.version}`,
-  ];
+    DEV_ENGINE_HOST: `unix://${containerEngineSocket}`,
+    DEV_ENGINE_DISPLAY_NAME: plan.engineName,
+    DOCKER_SOCKET_PATH: plan.engineSocket,
+    HARBOR_GATEWAY_PORT: String(plan.port),
+    HARBOR_GATEWAY_BIND_HOST: plan.bindHost,
+    AUTH_MODE: plan.authMode,
+    ALLOWED_ORIGINS: plan.allowedOrigins.join(","),
+    OIDC_PROVIDERS_JSON: oidcProvidersJson,
+    GATEWAY_VERSION: plan.version,
+  };
+  const lines = Object.entries(environment).map(
+    ([key, value]) => `${key}=${formatDotenvValue(value)}`,
+  );
 
   await writeFile(plan.environmentFile, `${lines.join("\n")}\n`, {
     encoding: "utf8",
     flag: "wx",
     mode: 0o600,
   });
+
+  return environment;
 }
 
 async function writeInstallMarker(plan) {
@@ -479,6 +817,9 @@ async function writeInstallMarker(plan) {
     installedAt: new Date().toISOString(),
     packageVersion: plan.version,
     projectName: plan.projectName,
+    bindHost: plan.bindHost,
+    authMode: plan.authMode,
+    gatewayPort: plan.port,
     loopbackPort: plan.port,
     engineSocket: plan.engineSocket,
   };
@@ -536,14 +877,23 @@ async function waitForGatewayHealth(
 }
 
 export function formatServerInstallPlan(plan) {
+  const isPublic = plan.bindHost === "0.0.0.0";
   return [
     "Harbor Desk preview gateway install plan",
     `  Host platform: ${supportedPlatforms.get(plan.platform)?.label ?? plan.platform}`,
     `  Directory: ${plan.directory}`,
     `  Compose project: ${plan.projectName}`,
-    `  Gateway: ${plan.healthUrl} (loopback only)`,
+    `  Gateway: ${plan.healthUrl} (${isPublic ? "local health check" : "loopback only"})`,
+    `  Network binding: ${plan.bindHost}:${plan.port} (${isPublic ? "public network" : "loopback only"})`,
+    `  Authentication: ${plan.authMode}`,
     `  Docker socket: ${plan.engineSocket}`,
     `  Server Engine name: ${plan.engineName}`,
+    ...(isPublic
+      ? [
+          "  Warning: public binding is a preview exposure; put it behind TLS/reverse proxy and a firewall.",
+          "  Warning: OIDC is required, but this installer is not a production control plane.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -570,6 +920,8 @@ export async function installServer(
     );
   }
 
+  validateServerInstallOptions(options);
+
   const packageVersion = version ?? (await readPackageVersion(root));
   const plan = buildServerInstallPlan(options, {
     root,
@@ -577,10 +929,11 @@ export async function installServer(
     platform,
   });
 
+  const oidcProvidersJson = await readOidcProviders(plan);
   await assertPayloadExists(plan.root);
   await assertEmptyTarget(plan.directory);
   await assertSocket(plan.engineSocket, platform);
-  await assertLoopbackPortAvailable(plan.port);
+  await assertPortAvailable(plan.port, plan.bindHost);
   const runner = await resolveDockerRunner(run, platform);
 
   if (plan.dryRun) {
@@ -589,34 +942,253 @@ export async function installServer(
 
   await mkdir(plan.directory, { recursive: true, mode: 0o750 });
   await copyServerPayload(plan);
-  await writeServerEnvironment(plan, randomBytesFn);
+  const generatedEnvironment = await writeServerEnvironment(
+    plan,
+    randomBytesFn,
+    oidcProvidersJson,
+  );
   await writeInstallMarker(plan);
+
+  // Docker Compose lets the invoking process environment override values from
+  // --env-file. Re-apply the generated values here so an ambient AUTH_MODE,
+  // bind host, port, or provider setting cannot silently change this plan.
+  const composeEnvironment = {
+    ...process.env,
+    ...generatedEnvironment,
+  };
 
   await run(
     runner.command,
     composeArguments(plan, runner, ["config", "--quiet"]),
-    { cwd: plan.directory },
+    { cwd: plan.directory, env: composeEnvironment },
   );
   await run(
     runner.command,
     composeArguments(plan, runner, ["up", "--detach", "--build"]),
-    { cwd: plan.directory },
+    { cwd: plan.directory, env: composeEnvironment },
   );
   await waitForHealth(plan.healthUrl);
 
   return { plan, installed: true };
 }
 
+export function serverInstallerAiContext() {
+  return JSON.stringify(
+    {
+      schemaVersion: 1,
+      command: "harbor-desk install-server",
+      purpose:
+        "Install Harbor Desk's server-side preview gateway on a controlled Docker host.",
+      outputContract:
+        "This context is stable JSON for an AI or automation client. It does not inspect Docker, write files, or start containers.",
+      interaction: {
+        interactive: {
+          trigger: "Run install-server with no arguments from a TTY.",
+          prompts: [
+            "destination directory",
+            "gateway port",
+            "local or public network binding",
+            "dev or OIDC authentication",
+            "OIDC provider JSON file when OIDC is selected",
+            "additional browser origins",
+            "explicit acknowledgement for the server Docker socket mount",
+          ],
+          nonTtyBehavior:
+            "Fails with usage guidance instead of waiting for stdin indefinitely.",
+        },
+        nonInteractive: {
+          trigger: "Pass explicit options to install-server.",
+          localExample:
+            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
+          publicExample:
+            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-public --public --auth-mode oidc --oidc-providers-file ./oidc-providers.json --allowed-origin https://client.example.com --allow-local-engine-socket",
+          contextFlags: ["-AI", "--ai-context"],
+        },
+      },
+      supportedPlatforms: [
+        { id: "linux", dockerHost: "Docker Engine or Docker Desktop" },
+        { id: "win32", dockerHost: "Docker Desktop" },
+        { id: "darwin", dockerHost: "Docker Desktop" },
+      ],
+      defaults: {
+        port: defaultPort,
+        bindHost: defaultBindHost,
+        authMode: defaultAuthMode,
+        allowedOrigins: [...defaultAllowedOrigins],
+        engineSocket: defaultEngineSocket,
+        projectName: defaultProjectName,
+      },
+      networkModes: {
+        local: {
+          bindHost: "127.0.0.1",
+          authMode: "dev",
+          description: "Loopback-only development preview.",
+        },
+        public: {
+          bindHost: "0.0.0.0",
+          authMode: "oidc",
+          requiredOptions: [
+            "--auth-mode oidc",
+            "--oidc-providers-file <path>",
+            "--allow-local-engine-socket",
+          ],
+          deploymentBoundary:
+            "Network reachability is enabled, but this remains a preview gateway and must be placed behind TLS or a reverse proxy and a firewall.",
+        },
+      },
+      oidcConfiguration: {
+        providerFile: "--oidc-providers-file <path>",
+        requiredFields: ["id", "displayName", "issuer", "audience", "clientId"],
+        optionalFields: [
+          "authorizationEndpoint",
+          "tokenEndpoint",
+          "jwksUri",
+          "roleClaim",
+          "hostIdsClaim",
+          "scopes",
+          "client credentials",
+        ],
+        publicRequirement: "Every configured OIDC endpoint must use HTTPS.",
+      },
+      validation: [
+        "The destination must be empty or not yet exist.",
+        "The published gateway port must be available on the selected bind host.",
+        "OIDC configuration must be a non-empty JSON array of provider objects.",
+        "Public OIDC endpoints must use HTTPS.",
+        "The installer refuses to mount the server Docker socket without explicit acknowledgement.",
+        "--dry-run validates prerequisites without writing files or starting containers.",
+      ],
+      trustBoundary: [
+        "Docker Engine access stays inside the server-side gateway container.",
+        "The Electron renderer and browser client never receive the Engine socket or Docker credentials.",
+        "Provider configuration is stored only in the owner-readable server environment file and is never included in this context or the install plan.",
+        "Public binding does not make this installer production-ready; durable persistence, secret management, TLS termination, and operational controls remain deployment responsibilities.",
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+async function promptServerInstallArguments({
+  stdin,
+  stdout,
+  createReadlineInterface,
+}) {
+  const readline = createReadlineInterface({ input: stdin, output: stdout });
+  const ask = (question) => readline.question(question);
+
+  try {
+    const directory = (await ask("Install directory (required): ")).trim();
+    if (!directory) {
+      throw new ServerInstallerError(
+        "An install directory is required. Run again and enter a destination directory.",
+      );
+    }
+
+    const port = (await ask(`Gateway port [${defaultPort}]: `)).trim();
+    const exposure = (await ask("Network binding (local/public) [local]: "))
+      .trim()
+      .toLowerCase();
+    if (exposure && !["local", "loopback", "public"].includes(exposure)) {
+      throw new ServerInstallerError(
+        "Network binding must be local or public.",
+      );
+    }
+    const isPublic = exposure === "public";
+    const defaultMode = isPublic ? "oidc" : defaultAuthMode;
+    const modeAnswer = (
+      await ask(`Authentication mode (dev/oidc) [${defaultMode}]: `)
+    )
+      .trim()
+      .toLowerCase();
+    const authMode = modeAnswer || defaultMode;
+    parseAuthMode(authMode);
+
+    const arguments_ = ["--directory", directory];
+    if (port) arguments_.push("--port", port);
+    if (isPublic) arguments_.push("--public");
+    if (authMode !== defaultAuthMode) {
+      arguments_.push("--auth-mode", authMode);
+    }
+
+    if (authMode === "oidc") {
+      const providersFile = (
+        await ask("OIDC provider JSON file (required): ")
+      ).trim();
+      if (!providersFile) {
+        throw new ServerInstallerError(
+          "An OIDC provider JSON file is required for OIDC authentication.",
+        );
+      }
+      arguments_.push("--oidc-providers-file", providersFile);
+    }
+
+    const allowedOrigins = (
+      await ask(
+        "Additional browser origins (comma-separated, blank keeps local defaults): ",
+      )
+    ).trim();
+    if (allowedOrigins) {
+      arguments_.push("--allowed-origin", allowedOrigins);
+    }
+
+    const socketAcknowledgement = await ask(
+      "Mount the server Docker socket into the gateway? Type yes to acknowledge the privilege: ",
+    );
+    if (
+      !parseBooleanAnswer(
+        socketAcknowledgement,
+        "Docker socket acknowledgement",
+      )
+    ) {
+      throw new ServerInstallerError(
+        "The server Docker socket mount was not acknowledged; installation stopped.",
+      );
+    }
+    arguments_.push("--allow-local-engine-socket");
+
+    return arguments_;
+  } finally {
+    readline.close();
+  }
+}
+
 export async function runServerInstaller(
   arguments_,
-  { cwd = process.cwd(), stdout = process.stdout, ...dependencies } = {},
+  {
+    cwd = process.cwd(),
+    stdin = process.stdin,
+    stdout = process.stdout,
+    createReadlineInterface = createInterface,
+    ...dependencies
+  } = {},
 ) {
   if (arguments_.length === 1 && ["--help", "-h"].includes(arguments_[0])) {
     stdout.write(`${serverInstallerUsage()}\n`);
     return { help: true };
   }
 
-  const options = parseServerInstallArgs(arguments_, { cwd });
+  let installArguments = arguments_;
+  if (installArguments.length === 0) {
+    if (!stdin.isTTY || !stdout.isTTY) {
+      throw new ServerInstallerError(
+        "install-server needs explicit options in non-interactive mode. Provide --directory and --allow-local-engine-socket, or use -AI for machine-readable setup context.",
+      );
+    }
+    installArguments = await promptServerInstallArguments({
+      stdin,
+      stdout,
+      createReadlineInterface,
+    });
+  }
+
+  const options = parseServerInstallArgs(installArguments, { cwd });
+  if (options.aiContext) {
+    stdout.write(`${serverInstallerAiContext()}\n`);
+    return { aiContext: true };
+  }
+
   const result = await installServer(options, dependencies);
   stdout.write(`${formatServerInstallPlan(result.plan)}\n`);
 
@@ -632,6 +1204,8 @@ export async function runServerInstaller(
 }
 
 export const serverInstallerPayload = Object.freeze({
+  defaultAuthMode,
+  defaultBindHost,
   defaultEngineSocket,
   defaultPort,
   defaultProjectName,

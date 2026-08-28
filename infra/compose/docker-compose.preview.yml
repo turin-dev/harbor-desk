@@ -7,15 +7,16 @@ services:
     init: true
     environment:
       NODE_ENV: development
-      AUTH_MODE: dev
+      AUTH_MODE: ${AUTH_MODE:-dev}
       HOST: 0.0.0.0
       PORT: 4310
       GATEWAY_VERSION: ${GATEWAY_VERSION:-0.1.0-preview}
       SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:?Set a unique preview secret in .env.preview}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      OIDC_PROVIDERS_JSON: ${OIDC_PROVIDERS_JSON:-[]}
       ENGINE_ENDPOINT_ALLOWLIST: ${ENGINE_ENDPOINT_ALLOWLIST:-}
     ports:
-      - "127.0.0.1:${HARBOR_GATEWAY_PORT:-4311}:4310"
+      - "${HARBOR_GATEWAY_BIND_HOST:-127.0.0.1}:${HARBOR_GATEWAY_PORT:-4311}:4310"
     healthcheck:
       test:
         - CMD-SHELL

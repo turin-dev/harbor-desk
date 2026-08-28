@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -14,6 +15,8 @@ import {
   formatServerInstallPlan,
   installServer,
   parseServerInstallArgs,
+  runServerInstaller,
+  serverInstallerAiContext,
   serverPlatformSupport,
   serverInstallerPayload,
   serverInstallerUsage,
@@ -68,6 +71,30 @@ test("reports the package manifest version", async () => {
   assert.equal(result.stdout.trim(), manifest.version);
 });
 
+test("prints machine-readable AI setup context without requiring a directory", () => {
+  for (const arguments_ of [
+    ["install-server", "-AI"],
+    ["install-server", "--ai-context"],
+    ["-AI"],
+  ]) {
+    const result = runCli(...arguments_);
+
+    assert.equal(result.status, 0, result.stderr);
+    const context = JSON.parse(result.stdout);
+    assert.equal(context.command, "harbor-desk install-server");
+    assert.equal(context.defaults.bindHost, "127.0.0.1");
+    assert.equal(context.defaults.authMode, "dev");
+    assert.equal(context.networkModes.public.bindHost, "0.0.0.0");
+    assert.match(context.interaction.nonInteractive.publicExample, /--public/);
+    assert.doesNotMatch(
+      result.stdout,
+      /SECRET_MASTER_KEY|clientSecret|access_token/,
+    );
+  }
+
+  assert.equal(JSON.parse(serverInstallerAiContext()).schemaVersion, 1);
+});
+
 test("rejects unknown arguments without performing an action", () => {
   const result = runCli("--not-a-command");
 
@@ -111,6 +138,8 @@ test("parses an isolated server install plan and keeps it loopback-only", () => 
 
   assert.equal(options.directory, resolve(cwd, "server-install"));
   assert.equal(options.port, 4312);
+  assert.equal(options.bindHost, "127.0.0.1");
+  assert.equal(options.authMode, "dev");
   assert.equal(options.allowLocalEngineSocket, true);
   assert.equal(plan.healthUrl, "http://127.0.0.1:4312/health/live");
   assert.match(plan.environmentFile, /\.harbor-desk\.env$/);
@@ -119,6 +148,41 @@ test("parses an isolated server install plan and keeps it loopback-only", () => 
       "server-payload/source/infra/compose",
     ),
     "the npm package must carry the Compose payload needed by install-server",
+  );
+});
+
+test("parses an explicitly public OIDC server install plan", () => {
+  const options = parseServerInstallArgs(
+    [
+      "--directory",
+      "./server-install",
+      "--public",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./oidc-providers.json",
+      "--allowed-origin",
+      "https://client.example.com",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+  const plan = buildServerInstallPlan(options, {
+    root: process.cwd(),
+    version: "0.4.0-test",
+  });
+
+  assert.equal(options.bindHost, "0.0.0.0");
+  assert.equal(options.authMode, "oidc");
+  assert.equal(
+    options.oidcProvidersFile,
+    resolve(process.cwd(), "oidc-providers.json"),
+  );
+  assert.ok(options.allowedOrigins.includes("https://client.example.com"));
+  assert.match(formatServerInstallPlan(plan), /public network/);
+  assert.match(
+    formatServerInstallPlan(plan),
+    /TLS\/reverse proxy and a firewall/,
   );
 });
 
@@ -141,6 +205,99 @@ test("requires an explicit destination and rejects malformed server options", ()
     () =>
       parseServerInstallArgs(["--directory", "./server-install", "--unknown"]),
     /Unknown install-server option: --unknown/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs(["--directory", "./server-install", "--public"]),
+    /requires --auth-mode oidc/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--bind-host",
+        "0.0.0.0",
+        "--auth-mode",
+        "dev",
+      ]),
+    /development authentication cannot be exposed/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--auth-mode",
+        "oidc",
+      ]),
+    /--oidc-providers-file/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--allowed-origin",
+        "https://client.example.com/path",
+      ]),
+    /allowed-origin must be an http or https origin/,
+  );
+});
+
+test("does not wait for input when install-server has no TTY", async () => {
+  await assert.rejects(
+    () =>
+      runServerInstaller([], {
+        stdin: { isTTY: false },
+        stdout: { isTTY: false, write() {} },
+      }),
+    /explicit options in non-interactive mode/,
+  );
+});
+
+test("validates an OIDC provider file before touching the install target", async () => {
+  const options = parseServerInstallArgs(
+    [
+      "--directory",
+      "./server-install",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./missing-oidc-providers.json",
+      "--allow-local-engine-socket",
+      "--dry-run",
+    ],
+    { cwd: process.cwd() },
+  );
+
+  await assert.rejects(
+    () =>
+      installServer(options, {
+        root: resolve(process.cwd(), "missing-server-payload"),
+        platform: "win32",
+        version: "0.4.0-test",
+        run: async () => {},
+      }),
+    /Could not read the OIDC provider configuration file/,
+  );
+});
+
+test("passes installer authentication and bind settings to the preview Compose template", async () => {
+  const compose = await readFile(
+    new URL("../infra/compose/docker-compose.preview.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(compose, /AUTH_MODE: \$\{AUTH_MODE:-dev\}/);
+  assert.match(compose, /OIDC_PROVIDERS_JSON: \$\{OIDC_PROVIDERS_JSON:-\[\]\}/);
+  assert.match(
+    compose,
+    /ALLOWED_ORIGINS: \$\{ALLOWED_ORIGINS:-http:\/\/localhost:5173,http:\/\/127\.0\.0\.1:5173\}/,
+  );
+  assert.match(
+    compose,
+    /- "\$\{HARBOR_GATEWAY_BIND_HOST:-127\.0\.0\.1\}:\$\{HARBOR_GATEWAY_PORT:-4311\}:4310"/,
   );
 });
 
@@ -181,6 +338,99 @@ test("packs a minimal reproducible server payload for install-server", () => {
     false,
     "postpack must remove the generated payload from the source checkout",
   );
+});
+
+test("writes validated public OIDC settings to the protected environment and Compose process", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "harbor-desk-server-install-"));
+  const destination = join(sandbox, "install");
+  const providerFile = join(sandbox, "oidc-providers.json");
+  await writeFile(
+    providerFile,
+    JSON.stringify([
+      {
+        id: "company",
+        displayName: "Company SSO",
+        issuer: "https://id.example.com",
+        audience: "harbor-desk",
+        clientId: "harbor-desktop",
+        clientSecret: "test-client-secret",
+        scopes: ["openid", "profile", "email"],
+      },
+    ]),
+  );
+
+  let prepared = false;
+  try {
+    const prepare = spawnSync(
+      process.execPath,
+      ["scripts/prepare-npm-server-payload.mjs"],
+      { cwd: packageRoot, encoding: "utf8" },
+    );
+    assert.equal(prepare.status, 0, prepare.stderr);
+    prepared = true;
+
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        destination,
+        "--port",
+        "49231",
+        "--public",
+        "--auth-mode",
+        "oidc",
+        "--oidc-providers-file",
+        providerFile,
+        "--allowed-origin",
+        "https://client.example.com",
+        "--allow-local-engine-socket",
+      ],
+      { cwd: packageRoot, platform: "win32" },
+    );
+    const calls = [];
+    const result = await installServer(options, {
+      root: packageRoot,
+      platform: "win32",
+      version: "0.4.0-test",
+      randomBytesFn: () => Buffer.alloc(32, 0x61),
+      run: async (...arguments_) => calls.push(arguments_),
+      waitForHealth: async () => {},
+    });
+
+    assert.equal(result.installed, true);
+    const environment = await readFile(result.plan.environmentFile, "utf8");
+    assert.match(environment, /HARBOR_GATEWAY_BIND_HOST="0\.0\.0\.0"/);
+    assert.match(environment, /AUTH_MODE="oidc"/);
+    assert.ok(
+      environment.includes(
+        'ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,https://client.example.com"',
+      ),
+    );
+
+    const providerLine = environment
+      .split("\n")
+      .find((line) => line.startsWith("OIDC_PROVIDERS_JSON="));
+    assert.ok(providerLine);
+    const providers = JSON.parse(
+      JSON.parse(providerLine.slice("OIDC_PROVIDERS_JSON=".length)),
+    );
+    assert.equal(providers[0].clientSecret, "test-client-secret");
+    assert.equal(calls[1][2].env.AUTH_MODE, "oidc");
+    assert.equal(calls[1][2].env.HARBOR_GATEWAY_BIND_HOST, "0.0.0.0");
+    assert.equal(
+      calls[1][2].env.OIDC_PROVIDERS_JSON,
+      JSON.stringify(providers),
+    );
+  } finally {
+    if (prepared) {
+      const clean = spawnSync(
+        process.execPath,
+        ["scripts/prepare-npm-server-payload.mjs", "--clean"],
+        { cwd: packageRoot, encoding: "utf8" },
+      );
+      assert.equal(clean.status, 0, clean.stderr);
+    }
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test("supports a server-side Docker host on Linux, Windows, and macOS", () => {

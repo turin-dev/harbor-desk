@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import {
   runServerInstaller,
+  serverInstallerAiContext,
   serverInstallerUsage,
 } from "./server-installer.mjs";
 
@@ -20,16 +21,17 @@ function usage() {
     "  npx --yes harbor-desk --open-release",
     "  npx --yes harbor-desk --open-source",
     "  npx --yes harbor-desk --version",
+    "  npx --yes harbor-desk -AI",
     "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
     "",
     "This bootstrap command does not install or launch the Electron desktop app.",
     "It does not access Docker Desktop, a local Docker socket, Docker CLI, or a Docker daemon.",
-    "The explicit install-server command installs a loopback-only preview gateway on a",
-    "controlled Linux, Windows, or macOS Docker host.",
+    "The explicit install-server command installs a local or public preview gateway on",
+    "a controlled Linux, Windows, or macOS Docker host; public binding requires OIDC.",
     "",
     `Source: ${sourceUrl}`,
     `Releases: ${releasesUrl}`,
-    `Private server-side setup: ${installGuideUrl}`,
+    `Server-side setup: ${installGuideUrl}`,
   ].join("\n");
 }
 
@@ -76,6 +78,8 @@ if (argument === "install-server") {
   process.stdout.write(`${usage()}\n`);
 } else if (argument === "--version" || argument === "-v") {
   process.stdout.write(`${await packageVersion()}\n`);
+} else if (argument === "-AI" || argument === "--ai-context") {
+  process.stdout.write(`${serverInstallerAiContext()}\n`);
 } else if (argument === "--open-release") {
   process.stdout.write(`Opening release page: ${releasesUrl}\n`);
   openUrl(releasesUrl);

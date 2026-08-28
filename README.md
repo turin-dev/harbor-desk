@@ -91,11 +91,12 @@ npx --yes --package ./harbor-desk-<version>.tgz harbor-desk --version
 ```
 
 The registry-backed npm command can find the source, preview releases, and the
-private server-side installation path:
+server-side installation path:
 
 ```powershell
 npx --yes harbor-desk
 npx --yes harbor-desk --open-release
+npx --yes harbor-desk -AI
 ```
 
 The default command does **not** install or launch the Electron desktop
@@ -111,9 +112,22 @@ The normal desktop flow does not require `install-server`: the client starts its
 own loopback gateway automatically. On a controlled Linux, Windows, or macOS
 Docker host, the explicit `install-server` command remains available for a
 dedicated external preview gateway. It copies the gateway source payload from
-the published npm package, creates a unique server secret, builds the gateway,
-and starts it behind a loopback-only port. The command requires an empty target
-directory and refuses to overwrite an existing install or use an occupied port.
+the published npm package, creates a per-install server secret, builds the
+gateway, and starts it on a loopback or explicitly selected network binding. The
+command requires an empty target directory and refuses to overwrite an existing
+install or use an occupied port.
+
+Run the command without arguments from an interactive terminal to answer setup
+questions for the destination, port, binding, authentication, OIDC provider
+file, browser origins, and Docker-socket acknowledgement. In CI, an SSH session
+without a TTY, or another automation context, pass every required option
+explicitly. `-AI` (also accepted as `--ai-context`) prints stable JSON describing
+the commands, defaults, platform support, and security boundary without reading
+Docker or touching the filesystem:
+
+```powershell
+npx --yes harbor-desk install-server -AI
+```
 
 The examples below use the npm-published package. When the GitHub release is
 newer than the registry, replace the `npx --yes harbor-desk` prefix with
@@ -129,7 +143,8 @@ npx --yes harbor-desk install-server \
 ```
 
 Use `--dry-run` to validate Docker Compose access, the Docker socket, target
-directory, and loopback port without creating files or containers:
+directory, authentication configuration, and published port without creating
+files or containers. The default is loopback plus development authentication:
 
 ```bash
 npx --yes harbor-desk install-server \
@@ -138,6 +153,27 @@ npx --yes harbor-desk install-server \
   --allow-local-engine-socket \
   --dry-run
 ```
+
+For a network-reachable preview, opt in explicitly. Public binding refuses
+development authentication and requires a non-empty OIDC provider JSON array;
+provider endpoints must use HTTPS. The browser origin must be supplied for the
+client that will call the gateway:
+
+```bash
+npx --yes harbor-desk install-server \
+  --directory /srv/harbor-desk-public \
+  --public \
+  --auth-mode oidc \
+  --oidc-providers-file ./oidc-providers.json \
+  --allowed-origin https://client.example.com \
+  --allow-local-engine-socket
+```
+
+`--public` only changes the published port binding to `0.0.0.0`; it is not a
+production deployment or a substitute for TLS. Put the preview behind a
+TLS-terminating reverse proxy and a firewall, restrict `--allowed-origin` to
+origins you control, and protect the provider file. The install plan reports
+the public warning but never prints provider credentials.
 
 `install-server` is a **development preview** installer, not a production
 control-plane installer. It uses the documented server-local Engine overlay;
@@ -299,13 +335,17 @@ server. It is not a client-local Engine fallback.
 A bind mount marked read-only protects the socket file mount, not the Docker
 API. A process that can use that socket can generally perform highly privileged
 Docker operations on the server. Use this overlay only on a controlled
-development machine or private preview host. Do not publish the socket, expose
-the preview gateway directly to the Internet, or treat the overlay as
-production isolation.
+development machine or private preview host. Do not publish the socket or treat
+the overlay as production isolation. If the gateway itself is made network-
+reachable with `install-server --public`, the installer requires OIDC, but the
+preview still needs TLS/reverse-proxy termination, firewall rules, narrow CORS
+origins, and operational monitoring before any external users are allowed to
+reach it.
 
 The base preview Compose file does not mount a Docker socket and binds its
-gateway port to loopback. Compose configuration can be reviewed without
-starting any service:
+gateway port to loopback by default. The installer can change only the published
+gateway bind host; the gateway still listens on its internal container port.
+Compose configuration can be reviewed without starting any service:
 
 ```powershell
 $env:SECRET_MASTER_KEY = "replace-with-a-unique-local-value"
