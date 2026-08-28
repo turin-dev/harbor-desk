@@ -23,6 +23,7 @@ export function useHosts() {
     queryFn: gateway.getHosts,
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
+    retryOnMount: false,
   });
 }
 
@@ -31,6 +32,7 @@ export function useCurrentUser() {
     queryKey: ["me"],
     queryFn: gateway.getCurrentUser,
     retry: false,
+    retryOnMount: false,
   });
 }
 

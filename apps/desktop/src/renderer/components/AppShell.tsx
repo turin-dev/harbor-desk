@@ -48,6 +48,7 @@ import type { Host, HostStatus } from "@harbor/contracts";
 import { useRemoteEventStream } from "../state/events.js";
 import { useCurrentUser, useHosts } from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
+import { shouldShowInitialGatewayLoading } from "../bootstrap-state.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { QuickSearch } from "./QuickSearch.js";
 import { TerminalDrawer } from "./TerminalDrawer.js";
@@ -272,8 +273,13 @@ export function AppShell() {
     data: hosts = [],
     isLoading: hostsLoading,
     isError: hostsError,
+    isFetched: hostsFetched,
   } = useHosts();
   const { data: user } = useCurrentUser();
+  const showHostsLoading = shouldShowInitialGatewayLoading({
+    isLoading: hostsLoading,
+    hasCompletedRequest: hostsFetched,
+  });
   const selectedHostId = useUiStore((state) => state.selectedHostId);
   const setSelectedHostId = useUiStore((state) => state.setSelectedHostId);
   const terminalOpen = useUiStore((state) => state.terminalOpen);
@@ -579,7 +585,7 @@ export function AppShell() {
               </Typography>
             </Box>
           )}
-          {hostsLoading && !hosts.length ? (
+          {showHostsLoading && !hosts.length ? (
             <Box sx={{ px: 4, py: 2.5 }}>
               <Typography color="text.secondary">
                 Connecting to the Harbor Desk gateway…
