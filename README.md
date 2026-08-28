@@ -54,6 +54,9 @@ The repository currently contains a working first vertical slice:
 - Quick search across live remote resources, event notification center, toast
   feedback, persistent client preferences, Windows login-item integration,
   resizable terminal drawer, command history, copy, and clear actions.
+- A startup update check against public Harbor Desk GitHub Release metadata,
+  with stable/preview channel selection, a manual status-bar check, and an
+  explicit release-page action. It never downloads or installs a binary.
 - Live gateway/host Troubleshoot diagnostics and a redacted About diagnostic
   summary.
 - Operation records with idempotency keys for container mutations, audit
@@ -171,6 +174,24 @@ Release artifacts are built by the `Release` workflow on `ubuntu-latest`,
 `windows-latest`, and `macos-latest`. They are **unsigned** unless the build
 environment supplies signing material, so macOS Gatekeeper and Windows SmartScreen
 will warn. Do not treat an unsigned artifact as a trusted production release.
+
+### Update checks
+
+The desktop checks the public Harbor Desk release list once after startup by
+default. The request is an unauthenticated metadata-only `GET` from the Electron
+main process to `api.github.com`; no Docker endpoint, gateway token, host name,
+or client preference is sent. The request's `User-Agent` identifies Harbor Desk
+and its current semantic version. **Settings → General** can disable automatic
+checks or exclude preview releases. The status bar always provides a manual
+check.
+
+When a newer semantic version is available, the renderer receives only the
+current version, newer version, check time, status message, and a release-page
+state. Choosing **View release** asks the main process to open the fixed
+`github.com/turin-dev/harbor-desk/releases/tag/...` page. Harbor Desk does not
+read asset download URLs, download packages, run an installer, or replace the
+current application automatically. Users must review release notes, signatures,
+and `SHA256SUMS` before choosing to install an artifact.
 
 ## Architecture and trust boundary
 

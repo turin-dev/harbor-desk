@@ -7,6 +7,18 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-28
+
+### Added
+
+- The desktop client checks the public Harbor Desk GitHub Releases metadata
+  after startup and reports available updates in the shared shell. General
+  settings can disable startup checks or exclude preview releases, and the
+  status bar can trigger a manual refresh.
+- Update checks run in the Electron main process behind a narrow preload API.
+  The client opens only the fixed Harbor Desk release-tag page after a user
+  action and never downloads or executes an installer automatically.
+
 ### Fixed
 
 - Release checksum manifests now use portable asset basenames instead of the
@@ -183,7 +195,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.4.0
 [0.3.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.2
 [0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1

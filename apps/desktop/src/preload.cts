@@ -1,8 +1,18 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+interface UpdateCheckStatus {
+  state: "idle" | "checking" | "available" | "up-to-date" | "error";
+  currentVersion: string;
+  latestVersion?: string;
+  releaseUrl?: string;
+  checkedAt?: string;
+  message: string;
+}
+
 contextBridge.exposeInMainWorld("harbor", {
   platform: process.platform,
   version: process.versions.electron,
+  electronVersion: process.versions.electron,
   setLaunchAtLogin: (enabled: boolean) =>
     ipcRenderer.invoke("app:set-launch-at-login", enabled) as Promise<boolean>,
   windowControls: {
@@ -32,6 +42,25 @@ contextBridge.exposeInMainWorld("harbor", {
   },
   openExternal: (url: string) =>
     ipcRenderer.invoke("app:open-external", url) as Promise<boolean>,
+  updates: {
+    getStatus: () =>
+      ipcRenderer.invoke("updates:get-status") as Promise<UpdateCheckStatus>,
+    check: (options?: { includePrerelease?: boolean; manual?: boolean }) =>
+      ipcRenderer.invoke(
+        "updates:check",
+        options,
+      ) as Promise<UpdateCheckStatus>,
+    openRelease: () =>
+      ipcRenderer.invoke("updates:open-release") as Promise<boolean>,
+    onStatus: (listener: (status: UpdateCheckStatus) => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        status: UpdateCheckStatus,
+      ) => listener(status);
+      ipcRenderer.on("updates:status", handler);
+      return () => ipcRenderer.off("updates:status", handler);
+    },
+  },
   gateway: {
     getRuntimeStatus: () =>
       ipcRenderer.invoke("gateway:get-runtime-status") as Promise<{

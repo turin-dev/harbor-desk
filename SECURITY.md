@@ -45,6 +45,14 @@ Unsupported capabilities intentionally surface an unavailable state.
 - Automatic startup is allowed only for a plain-HTTP root URL on exact
   `127.0.0.1`. HTTPS, LAN, and remote URLs are treated as external gateways;
   `HARBOR_DISABLE_MANAGED_GATEWAY=1` also disables automatic startup.
+- Update checks are metadata-only requests from the Electron main process to
+  the fixed public GitHub Releases API. No gateway token, Engine endpoint, host
+  metadata, or authentication credential is attached; the `User-Agent` contains
+  only the product name and current semantic version. Drafts and malformed tags
+  are ignored, response size and request time are bounded, and the preload
+  returns only typed status. The renderer cannot supply an arbitrary release
+  URL: opening an update is restricted to this repository's HTTPS release-tag
+  path. Harbor Desk never downloads or executes an update automatically.
 - Production Engine records require HTTPS, mTLS material held server side, and
   an explicit endpoint allowlist. Embedded endpoint credentials are rejected.
 - Production startup must use OIDC, TLS, and an injected Vault/KMS-backed
@@ -84,6 +92,10 @@ signing material. An unsigned installer cannot prove origin or integrity, so
 macOS Gatekeeper and Windows SmartScreen will warn. Verify the checksum against
 the release page, and do not distribute an unsigned artifact as a trusted
 production build.
+
+An update-available notification is not a trust decision. The current checker
+opens the release page only; users must still verify the release source,
+signature when available, and `SHA256SUMS` before running an installer.
 
 ## Deployment prerequisites not yet complete
 

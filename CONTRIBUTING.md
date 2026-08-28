@@ -65,6 +65,9 @@ clearly what you did and did not exercise.
   that token.
 - Do not add a generic URL proxy, arbitrary host-shell endpoint, or a way to
   forward raw Engine credentials to a desktop client.
+- Update checks must remain metadata-only in the Electron main process. The
+  renderer must not choose an arbitrary feed, download a release artifact, or
+  invoke an installer automatically.
 - Treat Docker socket access as privileged. A read-only mount does not make
   Docker API operations read-only.
 - Do not commit .env files, certificate/key files, tokens, passwords, or
