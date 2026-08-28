@@ -408,8 +408,13 @@ test("uses Node 24 artifact actions and distinguishes release tarballs from npm"
   assert.match(workflow, /node scripts\/generate-release-notes\.mjs/);
   assert.match(
     workflow,
-    /find release-assets -maxdepth 1 -type f ! -name SHA256SUMS -print0/,
-    "the checksum manifest must not hash itself while it is being written",
+    /cd release-assets[\s\S]*find \. -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\\0'/,
+    "the checksum manifest must exclude itself and contain portable asset basenames",
+  );
+  assert.doesNotMatch(
+    workflow,
+    /sha256sum > release-assets\/SHA256SUMS/,
+    "the checksum manifest must not record the CI staging directory",
   );
   assert.doesNotMatch(
     workflow,
