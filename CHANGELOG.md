@@ -7,6 +7,15 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-28
+
+### Fixed
+
+- The desktop shell now remains available after a restart or reload while the
+  remote gateway is offline. Session bootstrap failures use the existing
+  gateway-unavailable state instead of replacing the whole interface with a
+  nearly blank error screen.
+
 ### Changed
 
 - The Windows NSIS installer now uses Harbor Desk application, header, welcome,
@@ -142,7 +151,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.2
 [0.3.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.1
 [0.3.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.2.0

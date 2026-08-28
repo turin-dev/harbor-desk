@@ -1,6 +1,6 @@
 {
   "name": "@harbor/desktop",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "license": "Apache-2.0",
   "description": "Remote-first container operations desktop client",
@@ -20,7 +20,7 @@
     "package:mac": "pnpm run build && electron-builder --mac dmg zip",
     "package:dir": "pnpm run build && electron-builder --dir",
     "start": "electron .",
-    "test": "node --test dist/**/*.test.js"
+    "test": "node --test dist/**/*.test.js && tsx --test src/renderer/bootstrap-state.test.ts"
   },
   "dependencies": {
     "@fontsource/roboto": "^5.3.0",

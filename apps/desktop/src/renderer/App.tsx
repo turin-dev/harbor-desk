@@ -4,7 +4,6 @@ import {
   CircularProgress,
   CssBaseline,
   ThemeProvider,
-  Typography,
   useMediaQuery,
 } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +22,7 @@ import { useUiStore } from "./state/ui-store.js";
 import { useCurrentUser } from "./state/queries.js";
 import { GatewayClientError } from "./api/client.js";
 import { LoginScreen } from "./screens/LoginScreen.js";
+import { resolveAuthGateView } from "./bootstrap-state.js";
 
 export function App() {
   const themeMode = useUiStore((state) => state.themeMode);
@@ -45,7 +45,13 @@ export function App() {
 
 function AuthGate() {
   const queryClient = useQueryClient();
-  const { data: user, isPending, error } = useCurrentUser();
+  const { data: user, isPending, isFetched, error } = useCurrentUser();
+  const view = resolveAuthGateView({
+    hasUser: Boolean(user),
+    isPending,
+    hasCompletedRequest: isFetched,
+    errorCode: error instanceof GatewayClientError ? error.code : undefined,
+  });
 
   useEffect(() => {
     const unsubscribe = window.harbor?.auth.onChanged(() => {
@@ -54,28 +60,13 @@ function AuthGate() {
     return unsubscribe;
   }, [queryClient]);
 
-  if (isPending)
+  if (view === "checking")
     return (
       <Box sx={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
         <CircularProgress aria-label="Checking session" />
       </Box>
     );
-  if (
-    !user &&
-    error instanceof GatewayClientError &&
-    error.code === "unauthorized"
-  )
-    return <LoginScreen />;
-  if (!user && error)
-    return (
-      <Box
-        sx={{ minHeight: "100vh", display: "grid", placeItems: "center", p: 3 }}
-      >
-        <Typography color="error">
-          The gateway session could not be established. {error.message}
-        </Typography>
-      </Box>
-    );
+  if (view === "login") return <LoginScreen />;
 
   return (
     <Routes>
