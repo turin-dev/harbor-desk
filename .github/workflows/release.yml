@@ -194,9 +194,157 @@ jobs:
           retention-days: 14
           path: harbor-desk-*.tgz
 
+  publish-npm:
+    name: Publish npm package
+    needs: [verify, server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      release_version: ${{ steps.inspect.outputs.release_version }}
+      latest_version: ${{ steps.inspect.outputs.latest_version }}
+      preview_version: ${{ steps.inspect.outputs.preview_version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Set up Node.js for npm Trusted Publishing
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Check npm Trusted Publishing client
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const [major, minor, patch] = process.versions.npm.split(".").map(Number);
+            if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
+              console.error(`npm ${process.versions.npm} is too old for Trusted Publishing; npm 11.5.1 or newer is required.`);
+              process.exit(1);
+            }
+          '
+          npm --version
+
+      - name: Download the exact server package
+        uses: actions/download-artifact@v8
+        with:
+          name: server-npm-package
+          path: release-assets
+
+      - name: Publish the exact tagged package without overwrite
+        id: publish
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          version="${RELEASE_VERSION}"
+          if [ "v${version}" != "${RELEASE_TAG}" ]; then
+            echo "Tag ${RELEASE_TAG} does not match package version v${version}." >&2
+            exit 1
+          fi
+
+          manifest_version="$(node -p "require('./package.json').version")"
+          if [ "${manifest_version}" != "${version}" ]; then
+            echo "Root package version ${manifest_version} does not match ${version}." >&2
+            exit 1
+          fi
+
+          tarball="release-assets/harbor-desk-${version}.tgz"
+          if [ ! -f "${tarball}" ]; then
+            echo "Expected package ${tarball} was not downloaded." >&2
+            exit 1
+          fi
+
+          tarball_version="$(tar -xOf "${tarball}" package/package.json | node -e '
+            let input = "";
+            process.stdin.on("data", (chunk) => { input += chunk; });
+            process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));
+          ')"
+          if [ "${tarball_version}" != "${version}" ]; then
+            echo "Tarball version ${tarball_version} does not match ${version}." >&2
+            exit 1
+          fi
+
+          existing_error="$(mktemp)"
+          if existing_version="$(npm view "harbor-desk@${version}" version --json 2>"${existing_error}")"; then
+            existing_version="$(printf '%s' "${existing_version}" | node -e '
+              let input = "";
+              process.stdin.on("data", (chunk) => { input += chunk; });
+              process.stdin.on("end", () => process.stdout.write(String(JSON.parse(input))));
+            ')"
+            if [ "${existing_version}" != "${version}" ]; then
+              echo "npm returned unexpected existing version ${existing_version}." >&2
+              exit 1
+            fi
+            echo "${version} is already published; refusing to overwrite it."
+          else
+            if ! grep -q 'E404' "${existing_error}"; then
+              cat "${existing_error}" >&2
+              exit 1
+            fi
+            npm publish "${tarball}" --access public --tag preview --provenance
+          fi
+
+      - name: Verify npm publication and dist-tags
+        id: inspect
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          json_value() {
+            node -e '
+              let input = "";
+              process.stdin.on("data", (chunk) => { input += chunk; });
+              process.stdin.on("end", () => {
+                const value = JSON.parse(input);
+                process.stdout.write(typeof value === "string" ? value : JSON.stringify(value));
+              });
+            '
+          }
+
+          version="${RELEASE_VERSION}"
+          metadata="$(npm view "harbor-desk@${version}" version repository dist.integrity --json)"
+          published_version="$(npm view "harbor-desk@${version}" version --json | json_value)"
+          repository_url="$(npm view "harbor-desk@${version}" repository.url --json | json_value)"
+          integrity="$(npm view "harbor-desk@${version}" dist.integrity --json | json_value)"
+          preview_version="$(npm view harbor-desk dist-tags.preview --json | json_value)"
+          latest_version="$(npm view harbor-desk version --json | json_value)"
+
+          if [ "${published_version}" != "${version}" ] || [ -z "${integrity}" ]; then
+            echo "npm metadata did not confirm the published version or integrity." >&2
+            echo "${metadata}" >&2
+            exit 1
+          fi
+          if [[ "${repository_url}" != *"turin-dev/harbor-desk"* ]]; then
+            echo "npm repository metadata is not for turin-dev/harbor-desk: ${repository_url}" >&2
+            exit 1
+          fi
+          if [ "${preview_version}" != "${version}" ]; then
+            echo "npm preview dist-tag points to ${preview_version}, expected ${version}." >&2
+            exit 1
+          fi
+
+          {
+            echo "release_version=${published_version}"
+            echo "latest_version=${latest_version}"
+            echo "preview_version=${preview_version}"
+          } >>"${GITHUB_OUTPUT}"
+
   publish:
     name: Publish GitHub release
-    needs: [verify, client, server]
+    needs: [verify, client, server, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -240,8 +388,9 @@ jobs:
       - name: Write release notes
         env:
           RELEASE_VERSION: ${{ needs.verify.outputs.version }}
-          NPM_RELEASE_VERSION: ${{ needs.server.outputs.npm_release_version }}
-          NPM_LATEST_VERSION: ${{ needs.server.outputs.npm_latest_version }}
+          NPM_RELEASE_VERSION: ${{ needs.publish-npm.outputs.release_version }}
+          NPM_LATEST_VERSION: ${{ needs.publish-npm.outputs.latest_version }}
+          NPM_PREVIEW_VERSION: ${{ needs.publish-npm.outputs.preview_version }}
         run: node scripts/generate-release-notes.mjs > release-notes.md
 
       - name: Publish release assets

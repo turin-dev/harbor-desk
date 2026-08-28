@@ -452,6 +452,22 @@ test("uses Node 24 artifact actions and distinguishes release tarballs from npm"
     "release jobs must not use the deprecated Node 20 artifact actions",
   );
   assert.match(workflow, /npm view "harbor-desk@\$\{version\}" version/);
+  assert.match(workflow, /publish-npm:/);
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /node-version: 24/);
+  assert.match(workflow, /npm 11\.5\.1 or newer/);
+  assert.match(
+    workflow,
+    /npm publish[\s\S]*--access public[\s\S]*--tag preview[\s\S]*--provenance/,
+  );
+  assert.match(workflow, /already published; refusing to overwrite it/);
+  assert.match(workflow, /needs: \[verify, client, server, publish-npm\]/);
+  assert.match(workflow, /NPM_PREVIEW_VERSION:/);
+  assert.doesNotMatch(
+    workflow,
+    /NPM_TOKEN|NODE_AUTH_TOKEN/,
+    "npm Trusted Publishing must not use a long-lived registry token",
+  );
   assert.match(workflow, /node scripts\/generate-release-notes\.mjs/);
   assert.match(
     workflow,
@@ -500,9 +516,12 @@ test("generates versioned release notes from the changelog and npm state", async
     version: "0.3.1",
     changelogSection,
     npmReleaseVersion: "0.3.1",
-    npmLatestVersion: "0.3.1",
+    npmLatestVersion: "0.2.0",
+    npmPreviewVersion: "0.3.1",
   });
   assert.match(published, /npm registry provides `v0\.3\.1`/);
+  assert.match(published, /under the `preview` dist-tag/);
+  assert.match(published, /default `latest` dist-tag is unchanged/);
   assert.match(published, /npx --yes harbor-desk@0\.3\.1 --version/);
 });
 

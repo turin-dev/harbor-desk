@@ -82,12 +82,23 @@ the newest GitHub release:
 
 ```powershell
 npm view harbor-desk version
+npm view harbor-desk dist-tags --json
 ```
 
-Each generated release note records the registry version observed by the
-release workflow. If the versions differ, download the matching
-`harbor-desk-<version>.tgz` and `SHA256SUMS` assets, verify the checksum, and
-invoke the tarball explicitly:
+Stable releases use npm's `latest` dist-tag. GitHub prereleases are published
+under the `preview` dist-tag so an unpinned command does not unexpectedly move
+to a preview. To use an exact published preview version:
+
+```powershell
+npm view harbor-desk@0.5.0 version
+npx --yes harbor-desk@0.5.0 --version
+```
+
+GitHub Release assets and npm packages are published separately. Each
+generated release note records the npm version and dist-tag observed after the
+tagged package is published. If the requested version is not yet available in
+the registry, download the matching `harbor-desk-<version>.tgz` and
+`SHA256SUMS` assets, verify the checksum, and invoke the tarball explicitly:
 
 ```powershell
 npx --yes --package ./harbor-desk-<version>.tgz harbor-desk --version
