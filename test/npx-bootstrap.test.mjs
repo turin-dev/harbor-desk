@@ -6,6 +6,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import {
+  extractChangelogSection,
+  renderReleaseNotes,
+} from "../scripts/generate-release-notes.mjs";
+import {
   buildServerInstallPlan,
   formatServerInstallPlan,
   installServer,
@@ -336,4 +340,59 @@ test("packaging scripts build the workspace packages the renderer imports", asyn
   // installers instead of silently shipping only the runner's architecture.
   assert.match(workflow, /os: macos-15-intel[\s\S]*artifact: client-macos-x64/);
   assert.match(workflow, /os: macos-latest[\s\S]*artifact: client-macos-arm64/);
+});
+
+test("uses Node 24 artifact actions and distinguishes release tarballs from npm", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/release.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /actions\/upload-artifact@v7\b/);
+  assert.match(workflow, /actions\/download-artifact@v8\b/);
+  assert.doesNotMatch(
+    workflow,
+    /actions\/(?:upload|download)-artifact@v4\b/,
+    "release jobs must not use the deprecated Node 20 artifact actions",
+  );
+  assert.match(workflow, /npm view "harbor-desk@\$\{version\}" version/);
+  assert.match(workflow, /node scripts\/generate-release-notes\.mjs/);
+  assert.doesNotMatch(
+    workflow,
+    /Server: npm package for `npx --yes harbor-desk install-server`/,
+    "an attached GitHub tarball is not the same as a published npm version",
+  );
+});
+
+test("generates versioned release notes from the changelog and npm state", async () => {
+  const changelog = await readFile(
+    new URL("../CHANGELOG.md", import.meta.url),
+    "utf8",
+  );
+  const changelogSection = extractChangelogSection(changelog, "0.3.1");
+
+  assert.match(changelogSection, /Packaged desktop clients now load/);
+  assert.doesNotMatch(changelogSection, /install-server now supports/);
+
+  const unpublished = renderReleaseNotes({
+    version: "0.3.1",
+    changelogSection,
+    npmLatestVersion: "0.2.0",
+  });
+  assert.match(unpublished, /#### Fixed/);
+  assert.match(unpublished, /latest version was `v0\.2\.0`/);
+  assert.match(
+    unpublished,
+    /npx --yes --package \.\/harbor-desk-0\.3\.1\.tgz harbor-desk --version/,
+  );
+  assert.doesNotMatch(unpublished, /npx --yes harbor-desk@0\.3\.1/);
+
+  const published = renderReleaseNotes({
+    version: "0.3.1",
+    changelogSection,
+    npmReleaseVersion: "0.3.1",
+    npmLatestVersion: "0.3.1",
+  });
+  assert.match(published, /npm registry provides `v0\.3\.1`/);
+  assert.match(published, /npx --yes harbor-desk@0\.3\.1 --version/);
 });
