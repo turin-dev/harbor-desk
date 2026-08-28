@@ -223,14 +223,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm_version="$(npm --version)"
           node -e '
-            const [major, minor, patch] = process.versions.npm.split(".").map(Number);
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
             if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
-              console.error(`npm ${process.versions.npm} is too old for Trusted Publishing; npm 11.5.1 or newer is required.`);
+              console.error(`npm ${process.argv[1]} is too old for Trusted Publishing; npm 11.5.1 or newer is required.`);
               process.exit(1);
             }
-          '
-          npm --version
+          ' "${npm_version}"
+          echo "npm ${npm_version}"
 
       - name: Download the exact server package
         uses: actions/download-artifact@v8
