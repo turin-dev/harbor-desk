@@ -42,6 +42,19 @@ pnpm test
 pnpm run format:check
 ```
 
+When a real Docker Engine is reachable (for example Docker Desktop's named
+pipe, or `SMOKE_ENDPOINT` for another socket or host), the optional live
+smokes exercise the built gateway and desktop against it. They only create
+and delete the resources they use themselves. The click smoke additionally
+requires the built renderer (`pnpm --filter @harbor/desktop build:renderer`)
+and a desktop session so Electron can open a window.
+
+```powershell
+pnpm run smoke:engine
+pnpm run smoke:live
+pnpm run smoke:click
+```
+
 For a running Electron window, the optional long soak check also verifies the
 main-process ID:
 
