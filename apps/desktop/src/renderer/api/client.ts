@@ -19,7 +19,7 @@ import type {
 } from "@harbor/contracts";
 
 const browserGatewaySeed = (
-  (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? ""
+  (import.meta.env?.VITE_GATEWAY_URL as string | undefined) ?? ""
 ).replace(/\/$/, "");
 
 function websocketUrl(gatewayUrl: string, path: string): string {
@@ -38,6 +38,24 @@ export class GatewayClientError extends Error {
     this.code = error.code;
     this.retryable = error.retryable;
   }
+}
+
+const gatewayRequestTimeoutMs = 15_000;
+
+export function gatewayTransportError(error: unknown): GatewayClientError {
+  const name = error instanceof Error ? error.name : "";
+  const timedOut = name === "TimeoutError";
+  const cancelled = name === "AbortError";
+  return new GatewayClientError(0, {
+    code: timedOut ? "gateway_timeout" : "gateway_unavailable",
+    message: timedOut
+      ? "The Gateway request timed out. Check the connection and try again."
+      : cancelled
+        ? "The Gateway request was cancelled."
+        : "The Gateway could not be reached. Check the connection and try again.",
+    retryable: true,
+    requestId: "unknown",
+  });
 }
 
 export interface DesktopConnectionStatus {
@@ -117,6 +135,7 @@ async function fetchWithToken(
   ]);
   return fetch(`${gatewayUrl}${path}`, {
     ...options,
+    signal: options.signal ?? AbortSignal.timeout(gatewayRequestTimeoutMs),
     headers: {
       accept: "application/json",
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
@@ -130,37 +149,43 @@ async function fetchWithToken(
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let accessToken = await window.harbor?.auth
-    .getAccessToken()
-    .catch(() => undefined);
-  let response = await fetchWithToken(path, options, accessToken);
-  if (response.status === 401 && window.harbor?.auth.refresh) {
-    const refreshed = await window.harbor.auth.refresh().catch(() => false);
-    if (refreshed) {
-      accessToken = await window.harbor.auth
-        .getAccessToken()
-        .catch(() => undefined);
-      response = await fetchWithToken(path, options, accessToken);
+  try {
+    let accessToken = await window.harbor?.auth
+      .getAccessToken()
+      .catch(() => undefined);
+    let response = await fetchWithToken(path, options, accessToken);
+    if (response.status === 401 && window.harbor?.auth.refresh) {
+      const refreshed = await window.harbor.auth.refresh().catch(() => false);
+      if (refreshed) {
+        accessToken = await window.harbor.auth
+          .getAccessToken()
+          .catch(() => undefined);
+        response = await fetchWithToken(path, options, accessToken);
+      }
     }
-  }
-  if (response.status === 401)
-    await window.harbor?.auth.logout().catch(() => undefined);
+    if (response.status === 401)
+      await window.harbor?.auth.logout().catch(() => undefined);
 
-  if (!response.ok) {
-    const body = (await response.json().catch(() => undefined)) as
-      ApiErrorResponse | undefined;
-    if (body?.error) throw new GatewayClientError(response.status, body.error);
-    throw new GatewayClientError(response.status, {
-      code: "http_error",
-      message: `Gateway returned HTTP ${response.status}.`,
-      retryable: response.status >= 500,
-      requestId: "unknown",
-    });
-  }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => undefined)) as
+        ApiErrorResponse | undefined;
+      if (body?.error)
+        throw new GatewayClientError(response.status, body.error);
+      throw new GatewayClientError(response.status, {
+        code: "http_error",
+        message: `Gateway returned HTTP ${response.status}.`,
+        retryable: response.status >= 500,
+        requestId: "unknown",
+      });
+    }
 
-  if (response.status === 204) return undefined as T;
-  const body = (await response.json()) as ApiResponse<T>;
-  return body.data;
+    if (response.status === 204) return undefined as T;
+    const body = (await response.json()) as ApiResponse<T>;
+    return body.data;
+  } catch (error) {
+    if (error instanceof GatewayClientError) throw error;
+    throw gatewayTransportError(error);
+  }
 }
 
 export const gateway = {

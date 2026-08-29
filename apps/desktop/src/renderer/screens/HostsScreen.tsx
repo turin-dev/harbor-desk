@@ -20,6 +20,7 @@ import type { Host, HostRegistrationInput } from "@harbor/contracts";
 import { ConnectionTargetDialog } from "../components/ConnectionTargetDialog.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
+import { resolveHostsEmptyState } from "./hosts-state.js";
 import {
   useAddHost,
   useConnectionStatus,
@@ -38,7 +39,12 @@ const initialForm: HostRegistrationInput = {
 };
 
 export function HostsScreen() {
-  const { data: hosts = [], isLoading, refetch } = useHosts();
+  const {
+    data: hosts = [],
+    isLoading,
+    isError: hostsError,
+    refetch,
+  } = useHosts();
   const connection = useConnectionStatus();
   const addHost = useAddHost();
   const testHost = useTestHost();
@@ -51,6 +57,7 @@ export function HostsScreen() {
   const [formError, setFormError] = useState<string>();
   const [removeTarget, setRemoveTarget] = useState<Host>();
   const localEngineMode = connection.data?.mode === "engine";
+  const emptyState = resolveHostsEmptyState(connection.data, hostsError);
 
   const submit = () => {
     setFormError(undefined);
@@ -121,18 +128,32 @@ export function HostsScreen() {
       )}
       {hosts.length === 0 && !isLoading ? (
         <Paper sx={{ p: 3, mb: 2 }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Dns color="primary" />
-            <Box>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+          >
+            <Dns color={emptyState.tone} />
+            <Box sx={{ flex: 1 }}>
               <Typography sx={{ fontWeight: 650 }}>
-                Gateway ready · No Engine host connected
+                {emptyState.title}
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 0.35 }}>
-                Add an HTTPS Engine endpoint with the credentials required by
-                the active Gateway. Raw Engine targets entered in Settings are
-                wrapped locally and do not appear as a second raw connection.
+                {emptyState.description}
               </Typography>
             </Box>
+            {emptyState.action && (
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  emptyState.action?.kind === "retry-hosts"
+                    ? void refetch()
+                    : setConnectionOpen(true)
+                }
+              >
+                {emptyState.action.label}
+              </Button>
+            )}
           </Stack>
         </Paper>
       ) : (

@@ -67,6 +67,17 @@ contextBridge.exposeInMainWorld("harbor", {
       ipcRenderer.invoke("connection:get-session-token") as Promise<
         string | undefined
       >,
+    reconnect: () =>
+      ipcRenderer.invoke("connection:reconnect") as Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
+        message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
+      }>,
     configure: (input: {
       endpoint: string;
       displayName?: string;

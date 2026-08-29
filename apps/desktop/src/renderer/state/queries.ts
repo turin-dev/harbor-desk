@@ -19,6 +19,11 @@ export function useConnectionStatus() {
   useEffect(() => {
     const unsubscribe = window.harbor?.connection.onChanged((status) => {
       queryClient.setQueryData(["connection-status"], status);
+      if (status.mode !== "detecting") {
+        void queryClient.invalidateQueries({
+          predicate: (query) => query.queryKey[0] !== "connection-status",
+        });
+      }
     });
     return unsubscribe;
   }, [queryClient]);

@@ -193,6 +193,7 @@ export class ConnectionManager {
   private readonly startLocalGateway: typeof startLocalEngineGateway;
   private target?: StoredConnectionTarget;
   private localGateway?: LocalGatewayRuntime;
+  private reconnectPromise?: Promise<ConnectionStatus>;
   private status: ConnectionStatus = {
     mode: "unconfigured",
     message: "No Gateway or Docker Engine connection is configured.",
@@ -246,6 +247,48 @@ export class ConnectionManager {
     if (target.detectedMode === "engine") return this.activateEngine(target);
 
     return this.detectAndActivate(target);
+  }
+
+  public reconnect(): Promise<ConnectionStatus> {
+    if (this.reconnectPromise) return this.reconnectPromise;
+
+    const promise = this.reconnectInternal();
+    this.reconnectPromise = promise;
+    void promise.then(
+      () => this.releaseReconnect(promise),
+      () => this.releaseReconnect(promise),
+    );
+    return promise;
+  }
+
+  private async reconnectInternal(): Promise<ConnectionStatus> {
+    const target = this.target;
+    if (!target) return this.getStatus();
+
+    await this.stopLocalGateway();
+    this.setStatus({
+      mode: "detecting",
+      endpoint: target.endpoint,
+      message: "Retrying the configured Harbor Desk connection…",
+      localGateway: false,
+    });
+
+    if (target.detectedMode === "gateway") {
+      if (await this.probeGateway(target.endpoint))
+        return this.activateExternalGateway(target);
+      return this.setUnavailable(
+        target,
+        "The configured Gateway could not be reached.",
+      );
+    }
+
+    if (target.detectedMode === "engine") return this.activateEngine(target);
+
+    return this.detectAndActivate(target);
+  }
+
+  private releaseReconnect(promise: Promise<ConnectionStatus>): void {
+    if (this.reconnectPromise === promise) this.reconnectPromise = undefined;
   }
 
   public async configure(

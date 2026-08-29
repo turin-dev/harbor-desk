@@ -7,6 +7,17 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Troubleshoot screen can now retry a saved Gateway or Docker Engine target
+  using the existing secure configuration, and successful retries refresh the
+  active host/resource queries without requiring the user to re-enter mTLS data.
+- The shared desktop status bar now exposes the same saved-connection retry
+  action while the Gateway or Engine is unavailable, with duplicate retries
+  coalesced into one connection attempt.
+- The Hosts screen now distinguishes an unconfigured, unavailable, or failed
+  host list from a reachable Gateway with no registered Engine hosts.
+
 ## [0.6.1] - 2026-08-29
 
 ### Fixed

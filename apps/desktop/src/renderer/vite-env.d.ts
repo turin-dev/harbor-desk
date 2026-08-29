@@ -50,6 +50,16 @@ interface Window {
         engineOnline?: boolean;
       }>;
       getSessionToken: () => Promise<string | undefined>;
+      reconnect: () => Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
+        message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
+      }>;
       configure: (input: {
         endpoint: string;
         displayName?: string;

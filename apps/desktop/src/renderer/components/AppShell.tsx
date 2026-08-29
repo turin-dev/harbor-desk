@@ -16,6 +16,7 @@ import {
   Logout,
   Menu as MenuIcon,
   Minimize,
+  Refresh,
   Settings,
   Shield,
   Storage,
@@ -31,6 +32,7 @@ import {
   Avatar,
   Box,
   Button,
+  CircularProgress,
   Divider,
   Drawer,
   IconButton,
@@ -210,6 +212,8 @@ function ClientStatusBar({
   connectionMode,
   terminalOpen,
   onToggleTerminal,
+  onReconnect,
+  reconnecting,
   updateStatus,
   onCheckUpdates,
   onOpenUpdate,
@@ -219,6 +223,8 @@ function ClientStatusBar({
   connectionMode?: DesktopConnectionStatus["mode"];
   terminalOpen: boolean;
   onToggleTerminal: () => void;
+  onReconnect?: () => void;
+  reconnecting: boolean;
   updateStatus: DesktopUpdateCheckStatus;
   onCheckUpdates: () => void;
   onOpenUpdate: () => void;
@@ -289,6 +295,29 @@ function ClientStatusBar({
         Client-first · {modeLabel}
       </Typography>
       <Box sx={{ flex: 1 }} />
+      {onReconnect && (
+        <Button
+          color="inherit"
+          onClick={onReconnect}
+          disabled={reconnecting}
+          startIcon={
+            reconnecting ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : (
+              <Refresh sx={{ fontSize: 15 }} />
+            )
+          }
+          sx={{
+            minHeight: 30,
+            px: 1,
+            color: "inherit",
+            fontSize: 12,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {reconnecting ? "Retrying…" : "Retry connection"}
+        </Button>
+      )}
       <Button
         color="inherit"
         onClick={onToggleTerminal}
@@ -335,6 +364,7 @@ export function AppShell() {
   const compact = useMediaQuery("(max-width: 1100px)");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountAnchor, setAccountAnchor] = useState<HTMLElement | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const {
     data: hosts = [],
     isLoading: hostsLoading,
@@ -424,6 +454,35 @@ export function AppShell() {
       .catch(() =>
         showToast("The verified release page was unavailable.", "error"),
       );
+  };
+
+  const canReconnect = Boolean(
+    window.harbor?.connection?.reconnect &&
+    connection &&
+    connection.mode === "unavailable",
+  );
+  const retryConnection = async () => {
+    const reconnect = window.harbor?.connection?.reconnect;
+    if (!reconnect || reconnecting) return;
+    setReconnecting(true);
+    try {
+      const next = await reconnect();
+      showToast(
+        next.mode === "unavailable"
+          ? next.message
+          : "The saved connection is available again.",
+        next.mode === "unavailable" ? "error" : "success",
+      );
+    } catch (caught) {
+      showToast(
+        caught instanceof Error
+          ? caught.message
+          : "The saved connection could not be retried.",
+        "error",
+      );
+    } finally {
+      setReconnecting(false);
+    }
   };
 
   return (
@@ -757,6 +816,8 @@ export function AppShell() {
         connectionMode={connection?.mode}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        onReconnect={canReconnect ? () => void retryConnection() : undefined}
+        reconnecting={reconnecting}
         updateStatus={updateStatus}
         onCheckUpdates={checkForUpdates}
         onOpenUpdate={openAvailableUpdate}

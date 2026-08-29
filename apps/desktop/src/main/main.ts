@@ -610,6 +610,11 @@ function registerIpc(): void {
   ipcMain.handle("connection:get-session-token", () =>
     connectionManager?.getSessionToken(),
   );
+  ipcMain.handle("connection:reconnect", async () => {
+    if (!connectionManager)
+      throw new Error("The connection manager is unavailable.");
+    return connectionManager.reconnect();
+  });
   ipcMain.handle("connection:configure", async (_event, value: unknown) => {
     if (!connectionManager)
       throw new Error("The connection manager is unavailable.");

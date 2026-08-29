@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   CheckCircleOutline,
   CloudQueue,
@@ -49,6 +49,8 @@ export function TroubleshootScreen() {
   const connection = useConnectionStatus();
   const { data: hosts = [], isLoading: hostsLoading } = useHosts();
   const selectedHostId = useUiStore((state) => state.selectedHostId);
+  const showToast = useUiStore((state) => state.showToast);
+  const [reconnecting, setReconnecting] = useState(false);
   const selectedHost = useMemo(
     () => hosts.find((host) => host.id === selectedHostId) ?? hosts[0],
     [hosts, selectedHostId],
@@ -57,7 +59,40 @@ export function TroubleshootScreen() {
     void connection.refetch();
     void health.refetch();
   };
+  const reconnect = async () => {
+    const bridge = window.harbor?.connection;
+    if (!bridge?.reconnect) {
+      refresh();
+      return;
+    }
+    setReconnecting(true);
+    try {
+      const next = await bridge.reconnect();
+      showToast(
+        next.mode === "unavailable"
+          ? next.message
+          : "The saved connection is available again.",
+        next.mode === "unavailable" ? "error" : "success",
+      );
+      await Promise.all([connection.refetch(), health.refetch()]);
+    } catch (caught) {
+      showToast(
+        caught instanceof Error
+          ? caught.message
+          : "The saved connection could not be retried.",
+        "error",
+      );
+    } finally {
+      setReconnecting(false);
+    }
+  };
   const status = connection.data;
+  const canReconnect = Boolean(
+    window.harbor?.connection?.reconnect &&
+    status &&
+    status.mode !== "unconfigured" &&
+    (status.mode === "unavailable" || health.isError),
+  );
   const detectedType =
     status?.mode === "gateway"
       ? "Harbor Desk Gateway"
@@ -96,10 +131,16 @@ export function TroubleshootScreen() {
           <Button
             variant="outlined"
             startIcon={<Refresh />}
-            onClick={refresh}
-            disabled={health.isFetching || connection.isFetching}
+            onClick={canReconnect ? () => void reconnect() : refresh}
+            disabled={
+              reconnecting || health.isFetching || connection.isFetching
+            }
           >
-            Refresh checks
+            {reconnecting
+              ? "Reconnecting…"
+              : canReconnect
+                ? "Retry connection"
+                : "Refresh checks"}
           </Button>
         }
       />

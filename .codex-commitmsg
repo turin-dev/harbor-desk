@@ -1,0 +1,8 @@
+feat(desktop): retry saved connections and fix empty host states
+
+Expose a coalesced connection:reconnect IPC that retries the saved Gateway or
+Docker Engine target without re-entering mTLS data, surface it in the
+status bar and Troubleshoot screen, refresh host/resource queries on
+connection changes, normalize Gateway transport errors with a request
+timeout, and distinguish failed host lists from a reachable Gateway with no
+Engine hosts.

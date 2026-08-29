@@ -310,6 +310,85 @@ test("keeps an offline saved Gateway unavailable instead of creating a local wra
   assert.equal(startCalled, false);
 });
 
+test("reconnects a saved Gateway without asking for its configuration again", async () => {
+  let available = false;
+  const { connection, starts } = manager({
+    initialTarget: {
+      endpoint: "https://gateway.example.test:4311",
+      displayName: "Saved Gateway",
+      detectedMode: "gateway",
+    },
+    gateway: async () => available,
+  });
+
+  assert.equal((await connection.initialize()).mode, "unavailable");
+  available = true;
+
+  const status = await connection.reconnect();
+  assert.equal(status.mode, "gateway");
+  assert.equal(status.gatewayUrl, "https://gateway.example.test:4311");
+  assert.deepEqual(starts, []);
+});
+
+test("reconnects a saved Engine by closing the old Local Gateway first", async () => {
+  const runtimes: Array<LocalGatewayRuntime & { closed: boolean }> = [];
+  const { connection } = manager({
+    initialTarget: {
+      endpoint: "https://engine.example.test:2376",
+      displayName: "Saved Engine",
+      ca: "CA",
+      cert: "CERT",
+      key: "KEY",
+      detectedMode: "engine",
+    },
+    start: async () => {
+      const runtime = fakeRuntime({
+        url: `http://127.0.0.1:${49000 + runtimes.length}`,
+      });
+      runtimes.push(runtime);
+      return runtime;
+    },
+  });
+
+  assert.equal((await connection.initialize()).mode, "engine");
+  assert.equal(runtimes[0]?.closed, false);
+  assert.equal((await connection.reconnect()).mode, "engine");
+  assert.equal(runtimes[0]?.closed, true);
+  assert.equal(runtimes[1]?.closed, false);
+});
+
+test("coalesces concurrent saved Engine reconnects", async () => {
+  let starts = 0;
+  let releaseSecondStart: (() => void) | undefined;
+  const secondStart = new Promise<void>((resolve) => {
+    releaseSecondStart = resolve;
+  });
+  const { connection } = manager({
+    initialTarget: {
+      endpoint: "https://engine.example.test:2376",
+      displayName: "Saved Engine",
+      ca: "CA",
+      cert: "CERT",
+      key: "KEY",
+      detectedMode: "engine",
+    },
+    start: async () => {
+      starts += 1;
+      if (starts === 2) await secondStart;
+      return fakeRuntime({ url: `http://127.0.0.1:${49000 + starts}` });
+    },
+  });
+
+  await connection.initialize();
+  const first = connection.reconnect();
+  const second = connection.reconnect();
+  assert.strictEqual(second, first);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(starts, 2);
+  releaseSecondStart?.();
+  assert.equal((await first).mode, "engine");
+});
+
 test("closes a Local Gateway when a saved Engine is offline on restart", async () => {
   const runtime = fakeRuntime({ engineOnline: false });
   const { connection, runtimes } = manager({
