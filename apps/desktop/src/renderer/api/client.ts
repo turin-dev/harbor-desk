@@ -18,17 +18,9 @@ import type {
   VolumeSummary,
 } from "@harbor/contracts";
 
-const fallbackGatewayUrl = (
-  (import.meta.env.VITE_GATEWAY_URL as string | undefined) ??
-  "http://127.0.0.1:4310"
+const browserGatewaySeed = (
+  (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? ""
 ).replace(/\/$/, "");
-const gatewayUrlObject = new URL(fallbackGatewayUrl);
-if (
-  gatewayUrlObject.protocol !== "http:" &&
-  gatewayUrlObject.protocol !== "https:"
-) {
-  throw new Error("VITE_GATEWAY_URL must use HTTP or HTTPS.");
-}
 
 function websocketUrl(gatewayUrl: string, path: string): string {
   return `${gatewayUrl.replace(/^http/i, "ws")}${path}`;
@@ -48,38 +40,69 @@ export class GatewayClientError extends Error {
   }
 }
 
-export interface DesktopGatewayRuntimeStatus {
-  state: "managed" | "external" | "disabled" | "unavailable";
-  url: string;
+export interface DesktopConnectionStatus {
+  mode: "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+  endpoint?: string;
+  gatewayUrl?: string;
   message: string;
+  localGateway: boolean;
+  engineHostId?: string;
+  engineOnline?: boolean;
 }
 
-export const desktopGateway = {
-  getRuntimeStatus: async (): Promise<DesktopGatewayRuntimeStatus> => {
-    if (!window.harbor?.gateway)
-      return {
-        state: "disabled",
-        url: fallbackGatewayUrl,
-        message: "Automatic gateway startup is available in the desktop app.",
-      };
+export const desktopConnection = {
+  getStatus: async (): Promise<DesktopConnectionStatus> => {
+    if (window.harbor?.connection)
+      return window.harbor.connection.getStatus().catch(() => ({
+        mode: "unavailable",
+        message: "The connection runtime status could not be read.",
+        localGateway: false,
+      }));
 
-    return window.harbor.gateway.getRuntimeStatus().catch(() => ({
-      state: "unavailable",
-      url: fallbackGatewayUrl,
-      message: "The desktop gateway runtime status could not be read.",
-    }));
+    if (!browserGatewaySeed)
+      return {
+        mode: "unconfigured",
+        message: "No Gateway or Docker Engine connection is configured.",
+        localGateway: false,
+      };
+    try {
+      const url = new URL(browserGatewaySeed);
+      if (url.protocol !== "http:" && url.protocol !== "https:")
+        throw new Error();
+      return {
+        mode: "gateway",
+        endpoint: browserGatewaySeed,
+        gatewayUrl: browserGatewaySeed,
+        message: "Using the configured Harbor Desk Gateway.",
+        localGateway: false,
+      };
+    } catch {
+      return {
+        mode: "unavailable",
+        endpoint: browserGatewaySeed,
+        message: "The configured connection URL is invalid.",
+        localGateway: false,
+      };
+    }
   },
 };
 
 async function activeGatewayUrl(): Promise<string> {
-  const runtime = await desktopGateway.getRuntimeStatus();
+  const connection = await desktopConnection.getStatus();
   try {
-    const url = new URL(runtime.url);
+    if (!connection.gatewayUrl) throw new Error();
+    const url = new URL(connection.gatewayUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:")
       throw new Error();
-    return runtime.url.replace(/\/$/, "");
+    return connection.gatewayUrl.replace(/\/$/, "");
   } catch {
-    return fallbackGatewayUrl;
+    throw new GatewayClientError(0, {
+      code: "connection_unavailable",
+      message:
+        connection.message || "No active Harbor Desk Gateway is configured.",
+      retryable: true,
+      requestId: "unknown",
+    });
   }
 }
 
@@ -90,7 +113,7 @@ async function fetchWithToken(
 ): Promise<Response> {
   const [gatewayUrl, desktopSessionToken] = await Promise.all([
     activeGatewayUrl(),
-    window.harbor?.gateway.getSessionToken().catch(() => undefined),
+    window.harbor?.connection.getSessionToken().catch(() => undefined),
   ]);
   return fetch(`${gatewayUrl}${path}`, {
     ...options,

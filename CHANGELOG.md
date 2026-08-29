@@ -7,6 +7,18 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop now accepts one Gateway or Docker Engine target and detects the
+  connection type before creating the renderer. Server Gateways are used
+  directly; raw Engine targets start a Local Gateway wrapper on a dynamic
+  loopback port, so a Server Gateway and an unnecessary local Gateway are no
+  longer started together.
+- Connection settings, diagnostics, CSP, REST, and WebSocket routing now use
+  the active Gateway uniformly. Remote raw Engines require HTTPS plus CA,
+  client certificate, and private key material held by the Electron main
+  process.
+
 ## [0.5.3] - 2026-08-29
 
 ### Added
@@ -86,23 +98,21 @@ still change between minor versions.
 
 ### Added
 
-- The desktop app now starts its Fastify gateway automatically on the default
-  `http://127.0.0.1:4310` loopback endpoint before loading the interface and
-  closes the managed runtime when the app quits.
-- Each managed gateway receives a random per-launch desktop session token.
+- The desktop preview used a Fastify gateway on its default loopback endpoint
+  before loading the interface and closed that runtime when the app quit.
+- Each preview wrapper received a random per-launch desktop session token.
   Development authentication fails closed without that token even though the
   packaged `file://` renderer origin is allowed through CORS.
 
 ### Changed
 
-- Harbor Desk now follows a client-first startup flow: users launch one desktop
-  app and then add Docker Engine connections without running a separate gateway
-  command. Explicit non-loopback gateway configurations and
-  `HARBOR_DISABLE_MANAGED_GATEWAY=1` continue to use an external gateway instead
-  of silently starting another service.
-- Troubleshoot and About diagnostics now report whether the gateway was managed
-  by the desktop, supplied externally, disabled, or unavailable without exposing
-  its per-launch token.
+- Harbor Desk's 0.4 preview followed a client-first startup flow: users
+  launched one desktop app and then added Docker Engine connections without a
+  separate gateway command. Explicit non-loopback configurations used an
+  external gateway.
+- Troubleshoot and About diagnostics reported whether the preview runtime was
+  local, external, disabled, or unavailable without exposing its per-launch
+  token.
 
 ### Fixed
 

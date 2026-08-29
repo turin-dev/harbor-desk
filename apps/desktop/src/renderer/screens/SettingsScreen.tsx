@@ -1,7 +1,14 @@
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CheckCircleOutline,
+  CloudQueue,
   Construction,
   DeveloperBoard,
   Extension,
@@ -18,22 +25,25 @@ import {
   Chip,
   Divider,
   Alert,
+  Collapse,
   FormControl,
   MenuItem,
   Paper,
   Select,
   Stack,
   Switch,
+  TextField,
   Typography,
 } from "@mui/material";
 import type { Host } from "@harbor/contracts";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
-import { useHosts } from "../state/queries.js";
+import { useConnectionStatus, useHosts } from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
 
 type SectionId =
   | "general"
+  | "connection"
   | "remote-hosts"
   | "engine"
   | "builders"
@@ -47,8 +57,13 @@ type SectionId =
 const sections: Array<{ id: SectionId; label: string; icon: ReactNode }> = [
   { id: "general", label: "General", icon: <SettingsIcon fontSize="small" /> },
   {
+    id: "connection",
+    label: "Connection",
+    icon: <CloudQueue fontSize="small" />,
+  },
+  {
     id: "remote-hosts",
-    label: "Connections",
+    label: "Hosts",
     icon: <Router fontSize="small" />,
   },
   {
@@ -92,7 +107,7 @@ export function SettingsScreen() {
       <PageHeader
         eyebrow="Configuration"
         title="Settings"
-        description="Client preferences and automatic gateway controls. Docker sockets and local daemon settings are intentionally not exposed to the renderer."
+        description="Configure the connection target and client preferences. Docker sockets and raw Engine requests are intentionally not exposed to the renderer."
       />
       <Stack
         direction={{ xs: "column", md: "row" }}
@@ -125,6 +140,7 @@ export function SettingsScreen() {
         </Paper>
         <Paper sx={{ p: { xs: 2, md: 2.7 }, flex: 1, minWidth: 0 }}>
           {active === "general" && <GeneralSettings />}
+          {active === "connection" && <ConnectionSettings />}
           {active === "remote-hosts" && (
             <RemoteHostSettings
               hosts={hosts}
@@ -323,6 +339,232 @@ function GeneralSettings() {
   );
 }
 
+function ConnectionSettings() {
+  const connection = useConnectionStatus();
+  const showToast = useUiStore((state) => state.showToast);
+  const [endpoint, setEndpoint] = useState("");
+  const [displayName, setDisplayName] = useState("Docker Engine");
+  const [ca, setCa] = useState("");
+  const [cert, setCert] = useState("");
+  const [key, setKey] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (connection.data?.endpoint && !endpoint)
+      setEndpoint(connection.data.endpoint);
+  }, [connection.data?.endpoint, endpoint]);
+
+  const detectedType =
+    connection.data?.mode === "gateway"
+      ? "Harbor Desk Gateway"
+      : connection.data?.mode === "engine"
+        ? "Docker Engine"
+        : connection.data?.mode === "detecting"
+          ? "Detecting…"
+          : connection.data?.mode === "unconfigured"
+            ? "Not configured"
+            : "Unavailable";
+
+  const configure = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const bridge = window.harbor?.connection;
+    if (!bridge) {
+      setError("Connection configuration is available in the desktop client.");
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    try {
+      const status = await bridge.configure({
+        endpoint,
+        displayName,
+        ca,
+        cert,
+        key,
+      });
+      if (status.mode === "unavailable") {
+        setError(status.message);
+        showToast(status.message, "error");
+      } else {
+        showToast("Configured connection target detected.", "success");
+      }
+    } catch (caught) {
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "The connection target could not be configured.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    const bridge = window.harbor?.connection;
+    if (!bridge) {
+      setError("Connection configuration is available in the desktop client.");
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    try {
+      await bridge.clear();
+      showToast("Connection cleared.", "success");
+    } catch (caught) {
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "The connection could not be cleared.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Heading
+        icon={<CloudQueue />}
+        title="Connection"
+        description="Enter one Gateway or Docker Engine target. Harbor Desk detects the type and routes every request through a Gateway."
+      />
+      <Stack component="form" spacing={1.8} onSubmit={configure}>
+        <TextField
+          fullWidth
+          required
+          label="Gateway or Docker Engine URL"
+          placeholder="https://gateway.example.internal:4311 or npipe://./pipe/docker_engine"
+          value={endpoint}
+          onChange={(event) => setEndpoint(event.target.value)}
+          helperText="Gateway HTTP(S) URLs are used directly. Engine targets use a Local Gateway wrapper."
+          inputProps={{ spellCheck: false }}
+        />
+        <TextField
+          fullWidth
+          label="Display name"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          helperText="Used as the automatically created dev-remote-engine host name in Engine mode."
+        />
+        <Button
+          type="button"
+          variant="text"
+          onClick={() => setAdvanced((value) => !value)}
+          aria-expanded={advanced}
+          sx={{ alignSelf: "flex-start" }}
+        >
+          {advanced
+            ? "Hide advanced TLS settings"
+            : "Show advanced TLS settings"}
+        </Button>
+        <Collapse in={advanced}>
+          <Stack spacing={1.5}>
+            <Alert severity="info">
+              These fields are used only if the target is detected as a raw
+              Docker Engine. Remote raw Engines must use HTTPS and require all
+              three PEM values. Gateway targets discard them.
+            </Alert>
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              label="CA certificate"
+              value={ca}
+              onChange={(event) => setCa(event.target.value)}
+              inputProps={{ spellCheck: false, autoComplete: "off" }}
+            />
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              label="Client certificate"
+              value={cert}
+              onChange={(event) => setCert(event.target.value)}
+              inputProps={{ spellCheck: false, autoComplete: "off" }}
+            />
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              type="password"
+              label="Client private key"
+              value={key}
+              onChange={(event) => setKey(event.target.value)}
+              inputProps={{ spellCheck: false, autoComplete: "new-password" }}
+            />
+          </Stack>
+        </Collapse>
+
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <Paper variant="outlined" sx={{ p: 1.6 }}>
+          <Typography sx={{ fontWeight: 650, mb: 1.1 }}>
+            Current connection
+          </Typography>
+          <Stack spacing={0.8}>
+            <ConnectionValue label="Detected type" value={detectedType} />
+            <ConnectionValue
+              label="Active gateway"
+              value={connection.data?.gatewayUrl ?? "Not active"}
+            />
+            <ConnectionValue
+              label="Local gateway"
+              value={connection.data?.localGateway ? "Running" : "Not running"}
+            />
+            <ConnectionValue
+              label="Status"
+              value={connection.data?.message ?? "Checking connection…"}
+            />
+          </Stack>
+        </Paper>
+
+        <Stack direction="row" spacing={1}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={saving || !endpoint.trim()}
+          >
+            {saving ? "Detecting…" : "Detect and connect"}
+          </Button>
+          <Button
+            type="button"
+            variant="outlined"
+            onClick={clear}
+            disabled={saving}
+          >
+            Clear connection
+          </Button>
+        </Stack>
+      </Stack>
+    </>
+  );
+}
+
+function ConnectionValue({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" spacing={2}>
+      <Typography color="text.secondary" sx={{ fontSize: 11 }}>
+        {label}
+      </Typography>
+      <Typography
+        sx={{
+          maxWidth: "70%",
+          textAlign: "right",
+          fontFamily: "var(--dd-font-mono)",
+          fontSize: 11,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 function RemoteHostSettings({
   hosts,
   onOpenHosts,
@@ -340,8 +582,8 @@ function RemoteHostSettings({
     <>
       <Heading
         icon={<Router />}
-        title="Connections"
-        description="The desktop-managed gateway starts automatically and returns host visibility and connection metadata."
+        title="Hosts"
+        description="Hosts returned by the active Server Gateway or the Local Gateway wrapper."
       />
       <Stack spacing={1}>
         {hosts.length ? (

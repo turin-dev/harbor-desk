@@ -1,18 +1,29 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ContainerCreateInput,
   NetworkCreateInput,
   VolumeCreateInput,
 } from "@harbor/contracts";
-import { desktopGateway, gateway } from "../api/client.js";
+import { desktopConnection, gateway } from "../api/client.js";
 
-export function useDesktopGatewayRuntime() {
-  return useQuery({
-    queryKey: ["desktop-gateway-runtime"],
-    queryFn: desktopGateway.getRuntimeStatus,
+export function useConnectionStatus() {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["connection-status"],
+    queryFn: desktopConnection.getStatus,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });
+
+  useEffect(() => {
+    const unsubscribe = window.harbor?.connection.onChanged((status) => {
+      queryClient.setQueryData(["connection-status"], status);
+    });
+    return unsubscribe;
+  }, [queryClient]);
+
+  return query;
 }
 
 export function useGatewayHealth() {

@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: Remote-first container operations API. Docker Engine credentials remain server-side.
 servers:
-  - url: http://127.0.0.1:4310
+  - url: https://gateway.example.com
 security:
   - bearerAuth: []
 paths:

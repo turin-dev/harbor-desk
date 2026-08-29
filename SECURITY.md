@@ -31,10 +31,12 @@ Unsupported capabilities intentionally surface an unavailable state.
   SDK, socket, or direct Engine transport. A user can submit an endpoint and
   mTLS material through the host-registration form, but the gateway stores and
   uses those values and never returns them in a `Host` response.
-- By default the Electron main process starts a development gateway on exactly
-  `127.0.0.1` before it creates the renderer window. It never binds that managed
-  runtime to a LAN interface and does not start a Docker daemon.
-- Each desktop-managed gateway requires a cryptographically random per-launch
+- The Electron main process probes the configured target before it creates the
+  renderer window. A detected Server Gateway is used directly. A detected raw
+  Docker Engine starts a wrapper on exactly `127.0.0.1` with an OS-assigned
+  port; that wrapper never binds to a LAN interface and does not start a Docker
+  daemon.
+- Each Local Gateway wrapper requires a cryptographically random per-launch
   `x-harbor-desktop-token`. This protects the loopback API when CORS permits the
   packaged renderer's opaque `file://` origin (`Origin: null`). The token is
   kept in the main process, exposed only through the narrow preload API needed
@@ -42,9 +44,12 @@ Unsupported capabilities intentionally surface an unavailable state.
 - The Fastify gateway is the policy boundary. It authenticates users, applies
   server-side host grants and roles, validates requests, records audit
   metadata, and invokes the selected server-side connector.
-- Automatic startup is allowed only for a plain-HTTP root URL on exact
-  `127.0.0.1`. HTTPS, LAN, and remote URLs are treated as external gateways;
-  `HARBOR_DISABLE_MANAGED_GATEWAY=1` also disables automatic startup.
+- Raw local Engine targets may use `localhost`, `127.0.0.1`, `npipe:`, or
+  `unix:`. Raw remote Engines must use HTTPS and all three CA/client
+  certificate/private-key values. Plain HTTP remote Engines are rejected.
+- A previously detected Server Gateway remains a Server Gateway when it is
+  temporarily offline; the client reports `unavailable` and does not create a
+  second Local Gateway wrapper.
 - Update checks are metadata-only requests from the Electron main process to
   the fixed public GitHub Releases API. No gateway token, Engine endpoint, host
   metadata, or authentication credential is attached; the `User-Agent` contains
@@ -62,7 +67,7 @@ Unsupported capabilities intentionally surface an unavailable state.
   redacted from logs. Avoid adding raw upstream error bodies or stack traces to
   API responses.
 
-The desktop-managed gateway is a convenience for the development preview, not
+The Local Gateway wrapper is a convenience for raw Engine connections, not
 process isolation or a production deployment. Renderer compromise can use the
 narrow preload API as the legitimate renderer can; the per-launch token is a
 loopback channel guard, not a substitute for OIDC, host authorization, endpoint

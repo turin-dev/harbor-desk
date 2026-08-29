@@ -16,20 +16,26 @@
 - The installer can print a machine-readable `-AI` setup context. It contains
   commands and trust-boundary information only; provider contents and
   credentials are never included in that output or the formatted install plan.
-- The desktop-managed preview gateway binds only to exact `127.0.0.1`, starts
-  before the renderer, and stops when the desktop process quits.
-- Protected managed-gateway requests require a random per-launch
+- A configured Server Gateway is used directly. A raw Engine target starts a
+  Local Gateway wrapper bound only to exact `127.0.0.1` on an OS-assigned port;
+  the wrapper stops when the desktop process quits.
+- Protected Local Gateway wrapper requests require a random per-launch
   `x-harbor-desktop-token`; the token is never persisted or included in
-  diagnostics. Allowing `Origin: null` is valid only with this token guard.
-- Automatic startup is never used for HTTPS, LAN, or remote gateway URLs.
+  diagnostics. The wrapper's `Origin: null` allowance is valid only with this
+  token guard. Loopback server previews may allow the packaged origin as a
+  development convenience, but the installer rejects `null` for public binds
+  and requires an explicit HTTPS client origin there.
+- A previously detected Server Gateway is never reinterpreted as a raw Engine
+  just because it is temporarily offline. Remote raw Engine HTTP is rejected;
+  remote raw Engine HTTPS requires all three mTLS values.
 - Plain Docker Engine TCP access is not a supported production transport.
 - Production host registration requires HTTPS, CA/client certificate/client
   key material, and a configured `ENGINE_ENDPOINT_ALLOWLIST`.
 - Production startup requires an injected Vault/KMS-backed secret store; the
   in-memory AES-GCM fallback is restricted to development and tests.
 - The browser/renderer cannot access Node.js, filesystem secrets, or Docker.
-- The managed token is a loopback channel guard, not user authentication or
-  process isolation; production still requires OIDC and the external gateway
+- The Local Gateway token is a loopback channel guard, not user authentication
+  or process isolation; production still requires OIDC and the Server Gateway
   controls listed here.
 - Host endpoint registration rejects embedded credentials.
 - Host-level RBAC is enforced server-side for every resource and action route.

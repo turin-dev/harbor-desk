@@ -146,6 +146,7 @@ test("parses an isolated server install plan and keeps it loopback-only", () => 
   assert.equal(options.bindHost, "127.0.0.1");
   assert.equal(options.authMode, "dev");
   assert.equal(options.allowLocalEngineSocket, true);
+  assert.ok(options.allowedOrigins.includes("null"));
   assert.equal(plan.healthUrl, "http://127.0.0.1:4312/health/live");
   assert.match(plan.environmentFile, /\.harbor-desk\.env$/);
   assert.ok(
@@ -188,6 +189,28 @@ test("parses an explicitly public OIDC server install plan", () => {
   assert.match(
     formatServerInstallPlan(plan),
     /TLS\/reverse proxy and a firewall/,
+  );
+});
+
+test("rejects the opaque packaged-desktop origin for public server binds", () => {
+  assert.throws(
+    () =>
+      parseServerInstallArgs(
+        [
+          "--directory",
+          "./server-install",
+          "--public",
+          "--auth-mode",
+          "oidc",
+          "--oidc-providers-file",
+          "./oidc-providers.json",
+          "--allowed-origin",
+          "null",
+          "--allow-local-engine-socket",
+        ],
+        { cwd: process.cwd() },
+      ),
+    /opaque packaged-desktop origin/i,
   );
 });
 
@@ -459,7 +482,7 @@ test("passes installer authentication and bind settings to the preview Compose t
   assert.match(compose, /OIDC_PROVIDERS_JSON: \$\{OIDC_PROVIDERS_JSON:-\[\]\}/);
   assert.match(
     compose,
-    /ALLOWED_ORIGINS: \$\{ALLOWED_ORIGINS:-http:\/\/localhost:5173,http:\/\/127\.0\.0\.1:5173\}/,
+    /ALLOWED_ORIGINS: \$\{ALLOWED_ORIGINS:-http:\/\/localhost:5173,http:\/\/127\.0\.0\.1:5173,null\}/,
   );
   assert.match(
     compose,
@@ -860,42 +883,56 @@ test("keeps the desktop artifact version aligned with the release version", asyn
   }
 });
 
-test("packages and initializes the desktop-managed gateway before the renderer", async () => {
+test("packages the adaptive connection runtime before creating the renderer", async () => {
   const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
   const gateway = JSON.parse(await readFile(gatewayManifestUrl, "utf8"));
   const main = await readFile(
     new URL("../apps/desktop/src/main/main.ts", import.meta.url),
     "utf8",
   );
-  const managedGateway = await readFile(
+  const localGateway = await readFile(
     new URL("../apps/desktop/src/main/managed-gateway.ts", import.meta.url),
+    "utf8",
+  );
+  const connectionManager = await readFile(
+    new URL("../apps/desktop/src/main/connection-manager.ts", import.meta.url),
+    "utf8",
+  );
+  const preload = await readFile(
+    new URL("../apps/desktop/src/preload.cts", import.meta.url),
     "utf8",
   );
 
   assert.equal(desktop.dependencies?.["@harbor/gateway"], "workspace:*");
   assert.equal(desktop.dependencies?.["@harbor/config"], "workspace:*");
   assert.equal(gateway.exports?.["./app"]?.import, "./dist/app.js");
-  assert.match(managedGateway, /from "@harbor\/gateway\/app"/);
-  assert.match(managedGateway, /hostname !== "127\.0\.0\.1"/);
-  assert.match(managedGateway, /randomBytes\(32\)\.toString\("base64url"\)/);
+  assert.match(localGateway, /from "@harbor\/gateway\/app"/);
+  assert.match(localGateway, /probeHarborGateway/);
+  assert.match(localGateway, /PORT: "0"/);
+  assert.match(localGateway, /randomBytes\(32\)\.toString\("base64url"\)/);
+  assert.match(connectionManager, /detectedMode === "gateway"/);
+  assert.match(connectionManager, /remote_engine_tls_required/);
+  assert.match(preload, /connection:/);
+  assert.match(preload, /connection:configure/);
+  assert.doesNotMatch(main, /initializeManagedGateway|startManagedGateway/);
 
-  const initializeIndex = main.indexOf("await initializeManagedGateway()");
+  const initializeIndex = main.indexOf("await initializeConnection()");
   const createWindowIndex = main.indexOf(
     "await createWindow()",
     initializeIndex,
   );
   assert.ok(
     initializeIndex >= 0,
-    "Electron must initialize the managed gateway",
+    "Electron must initialize the connection runtime",
   );
   assert.ok(
     createWindowIndex > initializeIndex,
-    "the managed gateway must initialize before Electron creates the renderer window",
+    "the connection runtime must initialize before Electron creates the renderer window",
   );
   assert.match(
     main,
     /app\.on\("will-quit",[\s\S]*runtime\s*\.close\(\)/,
-    "Electron must close the managed gateway after renderer windows begin shutting down",
+    "Electron must close the Local Gateway wrapper after renderer windows begin shutting down",
   );
 });
 

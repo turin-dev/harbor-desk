@@ -7,17 +7,17 @@
 [![Release](https://img.shields.io/github/v/release/turin-dev/harbor-desk?include_prereleases&sort=semver)](https://github.com/turin-dev/harbor-desk/releases)
 
 Harbor Desk is an open-source, client-first desktop app for operating remote
-Docker Engines. Launching the desktop app starts its Fastify policy gateway
-automatically on `127.0.0.1` before the interface loads; users do not need to
-start a second program or gateway command. Every Docker Engine connection still
-stays behind that gateway, so the renderer does not require Docker Desktop,
-Docker CLI, or a local Docker socket.
+Docker Engines. The user configures one Gateway or Docker Engine target and the
+desktop detects which it is. A Harbor Desk Gateway is used directly; a raw
+Docker Engine gets a short-lived Local Gateway wrapper on a dynamically
+assigned `127.0.0.1` port. Every operation still stays behind a Gateway, so the
+renderer does not require Docker Desktop, Docker CLI, or a local Docker socket.
 
 > **Project status:** Harbor Desk is an independently implemented, working
-> vertical slice for remote container operations. Its automatic gateway is a
-> desktop-managed preview runtime, not a turnkey production control plane. The
-> production dependencies and hardening still called out below are deliberate
-> release boundaries, not hidden fallbacks.
+> vertical slice for remote container operations. Its Server Gateway and Local
+> Gateway wrapper are explicit connection modes, not a turnkey production
+> control plane. The production dependencies and hardening still called out
+> below are deliberate release boundaries, not hidden fallbacks.
 
 Harbor Desk uses a familiar container-management workflow, but it does not
 include Docker Desktop source code, assets, or direct renderer-to-Engine
@@ -41,9 +41,10 @@ integration.
 The repository currently contains a working first vertical slice:
 
 - Electron + React + TypeScript + MUI desktop shell.
-- A desktop-managed Fastify gateway that starts before the shell, binds only to
-  `127.0.0.1`, and exposes typed `/api/v1` responses.
-- A random per-launch desktop session token that protects managed-gateway API
+- Automatic detection of a Harbor Desk Gateway versus a Docker Engine target.
+- Direct Server Gateway connections, or a Local Gateway wrapper that binds only
+  to `127.0.0.1` on an OS-assigned port for raw Engine targets.
+- A random per-launch desktop session token that protects Local Gateway API
   calls, including requests from the packaged renderer's `file://` origin.
 - Remote host registry and development Engine connector.
 - Host-aware container list, live filtering, run/create+start, lifecycle
@@ -70,9 +71,10 @@ PostgreSQL/Redis persistence, Vault/KMS secret storage, BullMQ processors for
 BuildKit/Compose/export/scan, host-grant persistence, and the remaining
 Kubernetes/registry/extension/AI adapters are intentionally still separate
 implementation work. Their screens show an explicit unavailable state rather
-than fixture data or fake success. The desktop-managed preview gateway currently
-keeps host registrations, encrypted development secrets, and operations in
-memory, so they reset when the app fully quits.
+than fixture data or fake success. The Local Gateway wrapper currently keeps
+host registrations, encrypted development secrets, and operations in memory,
+so they reset when the app fully quits; a Server Gateway owns its own durable
+deployment state.
 
 ## npm server setup
 
@@ -145,9 +147,10 @@ Electron desktop application on the server.
 
 ### Dedicated server gateway
 
-The normal desktop flow does not require a dedicated server gateway: the client
-starts its own loopback gateway automatically. On a controlled Linux, Windows,
-or macOS Docker host, the TUI installs a dedicated external preview gateway by
+The normal desktop flow accepts either an already running Server Gateway or a
+Docker Engine endpoint. A raw Engine target is wrapped by a Local Gateway in
+the desktop process; a Server Gateway is never duplicated locally. On a
+controlled Linux, Windows, or macOS Docker host, the TUI installs a dedicated external preview gateway by
 copying the gateway payload, creating a per-install server secret, building the
 gateway, and starting it on a loopback or explicitly selected network binding.
 The installer requires an empty target directory and refuses to overwrite an
@@ -185,6 +188,11 @@ npm exec --yes harbor-desk -- install-server \
   --allow-local-engine-socket \
   --dry-run
 ```
+
+Loopback preview installs include the opaque `Origin: null` used by a packaged
+Electron renderer, in addition to the local Vite origins. The installer refuses
+that origin for a public bind; public deployments must provide an explicit
+HTTPS client origin instead.
 
 For a network-reachable preview, opt in explicitly. Public binding refuses
 development authentication and requires a non-empty OIDC provider JSON array;
@@ -248,14 +256,15 @@ npm exec --yes harbor-desk -- install-server --directory C:\harbor-desk-preview 
 
 | Component                                  | Linux                           | Windows        | macOS                    |
 | ------------------------------------------ | ------------------------------- | -------------- | ------------------------ |
-| Desktop client + managed loopback gateway  | AppImage, deb                   | NSIS installer | dmg, zip (x64 and arm64) |
+| Desktop client + adaptive Gateway wrapper  | AppImage, deb                   | NSIS installer | dmg, zip (x64 and arm64) |
 | Optional server gateway (`install-server`) | Docker Engine or Docker Desktop | Docker Desktop | Docker Desktop           |
 
-The managed gateway is bundled with the desktop client and does not start or
-install Docker. The optional server gateway runs as a container on any host with
-Docker Compose, so the same command works against a native Linux Engine and
-against Docker Desktop. The client never requires a local Docker Engine on any
-platform.
+The Local Gateway wrapper is bundled with the desktop client and starts only
+when the configured target is a raw Docker Engine; it does not start or install
+Docker. A configured Server Gateway is used directly. The optional server
+gateway runs as a container on any host with Docker Compose, so the same command
+works against a native Linux Engine and against Docker Desktop. The client
+never requires a local Docker Engine on any platform.
 
 Release artifacts are built by the `Release` workflow on `ubuntu-latest`,
 `windows-latest`, and `macos-latest`. They are **unsigned** unless the build
@@ -283,27 +292,32 @@ and `SHA256SUMS` before choosing to install an artifact.
 ## Architecture and trust boundary
 
 ```text
-Electron renderer -- HTTP / WebSocket --> automatic loopback gateway --> Docker Engine
-   no Docker SDK       per-launch token       Fastify policy boundary    selected host
-   no Docker socket    127.0.0.1 only         connector owns credentials
+Electron renderer -- HTTP / WebSocket --> Server Gateway --> Docker Engine
+                                      or Local Gateway wrapper
+   no Docker SDK       per-launch token only for wrapper   selected host
+   no Docker socket    127.0.0.1 dynamic port             connector boundary
 ```
 
-The Electron main process starts the default gateway before creating the
-window. The managed gateway accepts API calls only with a random token generated
-for that app launch; the preload exposes only a narrow getter so the renderer can
-attach the token to gateway requests. The token is not written to diagnostics or
-logs. Closing the window to the tray leaves the app and gateway running; choosing
-**Quit** stops both.
+The Electron main process detects the configured target before creating the
+window. A Server Gateway is used directly without starting a desktop Gateway.
+When the target is a raw Docker Engine, the main process starts a Local Gateway
+wrapper on an OS-assigned loopback port. The wrapper accepts API calls only with
+a random token generated for that app launch; the preload exposes only a narrow
+getter so the renderer can attach the token to wrapper requests. The token is
+not written to diagnostics or logs. Closing the window to the tray leaves the
+app and any Local Gateway wrapper running; choosing **Quit** stops the wrapper.
 
 The renderer is a control-plane client only. It never receives a Docker socket
 or talks directly to an Engine. The gateway authenticates each request, applies
 host authorization, records audit metadata, and makes the selected Engine call.
 A host selector in the desktop application is not a security boundary.
 
-Automatic startup is deliberately limited to a plain-HTTP root URL on exactly
-`127.0.0.1`. An explicit HTTPS, LAN, or remote `VITE_GATEWAY_URL` remains an
-external gateway. Set `HARBOR_DISABLE_MANAGED_GATEWAY=1` to disable automatic
-startup when developing against an already running loopback gateway.
+Connection detection first checks HTTP(S) targets for the Harbor Desk Gateway
+health and auth-provider endpoints. If the target is not a Gateway, local
+loopback Engine endpoints, `npipe:`, and `unix:` are allowed for development;
+remote raw Engines must use HTTPS with CA, client certificate, and private key.
+`VITE_GATEWAY_URL` is only an optional first-target seed for development builds;
+it does not reserve a local port or imply that a Gateway should start.
 
 ## Getting started
 
@@ -328,7 +342,8 @@ bash setup.sh
 ```
 
 For the full Electron development flow, install dependencies and launch the
-desktop. Electron starts the managed gateway automatically:
+desktop. Configure a target in Settings, or provide `VITE_GATEWAY_URL` as the
+first-target seed:
 
 ```powershell
 pnpm install
@@ -337,7 +352,8 @@ pnpm --filter @harbor/desktop dev:electron
 ```
 
 Running only the Vite renderer in a normal browser has no Electron preload, so
-that browser-only workflow still needs a separately started development gateway:
+that browser-only workflow still needs a separately started development
+Gateway and `VITE_GATEWAY_URL`:
 
 ```powershell
 pnpm --filter @harbor/gateway dev
@@ -391,10 +407,10 @@ The installer is unsigned unless the build environment supplies a signing
 certificate through the electron-builder signing configuration. Do not publish
 an unsigned artifact as a trusted production release.
 
-For a development connector, set `DEV_ENGINE_HOST` to a protected Engine
-endpoint. The gateway process—including the desktop-managed gateway—reads this
-variable; the renderer does not. Do not expose an unauthenticated Docker daemon
-in production, and do not point the managed preview gateway at an untrusted
+For a standalone/server development connector, set `DEV_ENGINE_HOST` to a
+protected Engine endpoint. The Server Gateway or Local Gateway wrapper reads
+this value; the renderer does not. Do not expose an unauthenticated Docker
+daemon in production, and do not point a Local Gateway wrapper at an untrusted
 endpoint.
 
 ## Server-local Engine overlay

@@ -92,7 +92,7 @@ ${npmStatus}
 
 This remains a prerelease. Desktop binaries are currently **unsigned**; verify \`SHA256SUMS\` before installation and use a source build where signed artifacts are required.
 
-The desktop starts its bundled gateway automatically on \`127.0.0.1\` and does not require a local Docker Engine. Docker access remains behind the gateway; the renderer never receives a Docker socket or direct Engine connection. The optional server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
+The desktop detects a configured Harbor Desk Gateway or Docker Engine. It uses a Server Gateway directly, and starts a bundled Local Gateway wrapper on \`127.0.0.1\` only for a raw Engine target. Docker access remains behind a Gateway; the renderer never receives a Docker socket or direct Engine connection. The optional server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
 
 See [\`SECURITY.md\`](https://github.com/turin-dev/harbor-desk/blob/${releaseTag}/SECURITY.md) for the current security and dependency-advisory boundary.`;
 }

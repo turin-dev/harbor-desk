@@ -30,16 +30,6 @@ contextBridge.exposeInMainWorld("harbor", {
     ipcRenderer.invoke("app:select-file", options) as Promise<
       string | undefined
     >,
-  secureStore: {
-    set: (key: string, value: string) =>
-      ipcRenderer.invoke("secure-store:set", key, value) as Promise<boolean>,
-    get: (key: string) =>
-      ipcRenderer.invoke("secure-store:get", key) as Promise<
-        string | undefined
-      >,
-    delete: (key: string) =>
-      ipcRenderer.invoke("secure-store:delete", key) as Promise<boolean>,
-  },
   openExternal: (url: string) =>
     ipcRenderer.invoke("app:open-external", url) as Promise<boolean>,
   updates: {
@@ -61,17 +51,64 @@ contextBridge.exposeInMainWorld("harbor", {
       return () => ipcRenderer.off("updates:status", handler);
     },
   },
-  gateway: {
-    getRuntimeStatus: () =>
-      ipcRenderer.invoke("gateway:get-runtime-status") as Promise<{
-        state: "managed" | "external" | "disabled" | "unavailable";
-        url: string;
+  connection: {
+    getStatus: () =>
+      ipcRenderer.invoke("connection:get-status") as Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
         message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
       }>,
     getSessionToken: () =>
-      ipcRenderer.invoke("gateway:get-session-token") as Promise<
+      ipcRenderer.invoke("connection:get-session-token") as Promise<
         string | undefined
       >,
+    configure: (input: {
+      endpoint: string;
+      displayName?: string;
+      ca?: string;
+      cert?: string;
+      key?: string;
+    }) =>
+      ipcRenderer.invoke("connection:configure", input) as Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
+        message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
+      }>,
+    clear: () =>
+      ipcRenderer.invoke("connection:clear") as Promise<{
+        mode: "unconfigured";
+        message: string;
+        localGateway: false;
+      }>,
+    onChanged: (
+      listener: (status: {
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
+        message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
+      }) => void,
+    ) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        status: Parameters<typeof listener>[0],
+      ) => listener(status);
+      ipcRenderer.on("connection:changed", handler);
+      return () => ipcRenderer.off("connection:changed", handler);
+    },
   },
   auth: {
     startLogin: (providerId: string) =>

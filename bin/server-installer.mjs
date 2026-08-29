@@ -140,6 +140,7 @@ function parseAuthMode(value) {
 
 function parseAllowedOrigin(value) {
   const origin = safeEnvironmentValue(value, "--allowed-origin");
+  if (origin === "null") return origin;
   let parsed;
 
   try {
@@ -305,6 +306,11 @@ function validateServerInstallOptions(options) {
       "Public binding (--bind-host 0.0.0.0/--public) requires --auth-mode oidc; development authentication cannot be exposed on a network.",
     );
   }
+  if (bindHost === "0.0.0.0" && options.allowedOrigins.includes("null")) {
+    throw new ServerInstallerError(
+      "Public binding cannot use the opaque packaged-desktop origin `null`; configure an explicit HTTPS client origin.",
+    );
+  }
 
   if (authMode === "oidc" && !options.oidcProvidersFile) {
     throw new ServerInstallerError(
@@ -467,7 +473,10 @@ export function parseServerInstallArgs(
         )
       : undefined,
     allowedOrigins: [
-      ...new Set(options.allowedOrigins.map(parseAllowedOrigin)),
+      ...new Set([
+        ...options.allowedOrigins.map(parseAllowedOrigin),
+        ...(options.bindHost === "127.0.0.1" ? ["null"] : []),
+      ]),
     ],
   };
 }
@@ -535,7 +544,10 @@ export function buildServerInstallPlan(
     ...options,
     bindHost,
     authMode,
-    allowedOrigins: options.allowedOrigins ?? [...defaultAllowedOrigins],
+    allowedOrigins: options.allowedOrigins ?? [
+      ...defaultAllowedOrigins,
+      ...(bindHost === "127.0.0.1" ? ["null"] : []),
+    ],
     root,
     version,
     platform: platform ?? options.platform ?? process.platform,
@@ -1191,7 +1203,7 @@ export function serverInstallerAiContext() {
         port: defaultPort,
         bindHost: defaultBindHost,
         authMode: defaultAuthMode,
-        allowedOrigins: [...defaultAllowedOrigins],
+        allowedOrigins: [...defaultAllowedOrigins, "null"],
         engineSocket: defaultEngineSocket,
         projectName: defaultProjectName,
       },

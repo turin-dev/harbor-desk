@@ -26,11 +26,6 @@ interface Window {
     selectFile: (options?: {
       extensions?: string[];
     }) => Promise<string | undefined>;
-    secureStore: {
-      set: (key: string, value: string) => Promise<boolean>;
-      get: (key: string) => Promise<string | undefined>;
-      delete: (key: string) => Promise<boolean>;
-    };
     openExternal: (url: string) => Promise<boolean>;
     updates: {
       getStatus: () => Promise<DesktopUpdateCheckStatus>;
@@ -43,13 +38,51 @@ interface Window {
         listener: (status: DesktopUpdateCheckStatus) => void,
       ) => () => void;
     };
-    gateway: {
-      getRuntimeStatus: () => Promise<{
-        state: "managed" | "external" | "disabled" | "unavailable";
-        url: string;
+    connection: {
+      getStatus: () => Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
         message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
       }>;
       getSessionToken: () => Promise<string | undefined>;
+      configure: (input: {
+        endpoint: string;
+        displayName?: string;
+        ca?: string;
+        cert?: string;
+        key?: string;
+      }) => Promise<{
+        mode:
+          "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+        endpoint?: string;
+        gatewayUrl?: string;
+        message: string;
+        localGateway: boolean;
+        engineHostId?: string;
+        engineOnline?: boolean;
+      }>;
+      clear: () => Promise<{
+        mode: "unconfigured";
+        message: string;
+        localGateway: false;
+      }>;
+      onChanged: (
+        listener: (status: {
+          mode:
+            "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+          endpoint?: string;
+          gatewayUrl?: string;
+          message: string;
+          localGateway: boolean;
+          engineHostId?: string;
+          engineOnline?: boolean;
+        }) => void,
+      ) => () => void;
     };
     auth: {
       startLogin: (providerId: string) => Promise<boolean>;

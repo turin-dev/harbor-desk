@@ -16,10 +16,11 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  startManagedGateway,
-  type ManagedGatewayRuntime,
-  type ManagedGatewayStatus,
-} from "./managed-gateway.js";
+  ConnectionManager,
+  parseStoredConnectionTarget,
+  type ConnectionStatus,
+  type ConnectionTargetInput,
+} from "./connection-manager.js";
 import {
   checkForUpdates,
   initialUpdateStatus,
@@ -28,19 +29,8 @@ import {
 } from "./update-checker.js";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
-const gatewayUrl = (
-  process.env.VITE_GATEWAY_URL ?? "http://127.0.0.1:4310"
-).replace(/\/$/, "");
+const seedGatewayUrl = process.env.VITE_GATEWAY_URL?.trim() || undefined;
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const gatewayUrlObject = new URL(gatewayUrl);
-if (
-  gatewayUrlObject.protocol !== "http:" &&
-  gatewayUrlObject.protocol !== "https:"
-) {
-  throw new Error("VITE_GATEWAY_URL must use HTTP or HTTPS.");
-}
-const gatewayOrigin = gatewayUrlObject.origin;
-const gatewayWebSocketOrigin = gatewayOrigin.replace(/^http/i, "ws");
 const devOrigin = new URL(devServerUrl).origin;
 const devWebSocketOrigin = devOrigin.replace(/^http/i, "ws");
 let mainWindow: BrowserWindow | undefined;
@@ -48,15 +38,15 @@ let tray: Tray | undefined;
 let accessToken: string | undefined;
 let isQuitting = false;
 let gatewayShutdownStarted = false;
-let managedGateway: ManagedGatewayRuntime | undefined;
+let connectionManager: ConnectionManager | undefined;
 let updateStatus: UpdateCheckStatus | undefined;
 let updateCheckInFlight: Promise<UpdateCheckStatus> | undefined;
 let lastUpdateCheckStartedAt = 0;
 let lastUpdateCheckIncludedPrereleases: boolean | undefined;
-let managedGatewayStatus: ManagedGatewayStatus = {
-  state: "unavailable",
-  url: gatewayUrl,
-  message: "The automatic gateway has not started yet.",
+let connectionStatus: ConnectionStatus = {
+  mode: "unconfigured",
+  message: "No Gateway or Docker Engine connection is configured.",
+  localGateway: false,
 };
 let pendingLogin:
   | { providerId: string; state: string; nonce: string; verifier: string }
@@ -128,31 +118,65 @@ async function runUpdateCheck(input?: {
 }
 
 function desktopGatewayHeaders(): Record<string, string> {
-  return managedGateway?.sessionToken
-    ? { "x-harbor-desktop-token": managedGateway.sessionToken }
-    : {};
+  const sessionToken = connectionManager?.getSessionToken();
+  return sessionToken ? { "x-harbor-desktop-token": sessionToken } : {};
 }
 
-async function initializeManagedGateway(): Promise<void> {
+function activeGatewayUrl(): string | undefined {
+  return connectionManager?.getGatewayUrl();
+}
+
+function requiredGatewayUrl(): string {
+  const url = activeGatewayUrl();
+  if (!url)
+    throw new Error(
+      "No active Harbor Desk Gateway is configured. Open Settings and configure a connection target.",
+    );
+  return url;
+}
+
+function connectionOrigins(): string[] {
+  const url = activeGatewayUrl();
+  if (!url) return [];
   try {
-    managedGateway = await startManagedGateway({
-      gatewayUrl,
-      gatewayVersion: app.getVersion(),
-      disabled: process.env.HARBOR_DISABLE_MANAGED_GATEWAY === "1",
-    });
-    managedGatewayStatus = managedGateway.status;
-    console.info("[gateway] desktop runtime", managedGatewayStatus);
+    const origin = new URL(url).origin;
+    return [origin, origin.replace(/^http/i, "ws")];
+  } catch {
+    return [];
+  }
+}
+
+function notifyConnectionChanged(status: ConnectionStatus): void {
+  connectionStatus = status;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("connection:changed", status);
+}
+
+async function initializeConnection(): Promise<void> {
+  const storedTarget = parseStoredConnectionTarget(
+    await readSecureValue("connection-target"),
+  );
+  connectionManager = new ConnectionManager({
+    gatewayVersion: app.getVersion(),
+    seedEndpoint: seedGatewayUrl,
+    initialTarget: storedTarget,
+    onChanged: notifyConnectionChanged,
+  });
+  try {
+    connectionStatus = await connectionManager.initialize();
   } catch (error) {
-    managedGateway = undefined;
-    managedGatewayStatus = {
-      state: "unavailable",
-      url: gatewayUrl,
+    connectionStatus = {
+      mode: "unavailable",
+      endpoint: seedGatewayUrl,
       message:
         error instanceof Error
           ? error.message
-          : "The automatic gateway could not start.",
+          : "The connection target could not be initialized.",
+      localGateway: false,
     };
-    console.error("[gateway] automatic startup failed", managedGatewayStatus);
+    console.error("[connection] initialization failed", {
+      message: connectionStatus.message,
+    });
   }
 }
 
@@ -178,7 +202,49 @@ async function readSecureValue(key: string): Promise<string | undefined> {
   if (!safeStorage.isEncryptionAvailable()) return undefined;
   const path = secureTokenPath(key);
   if (!existsSync(path)) return undefined;
-  return safeStorage.decryptString(await readFile(path));
+  try {
+    return safeStorage.decryptString(await readFile(path));
+  } catch {
+    return undefined;
+  }
+}
+
+async function deleteSecureValue(key: string): Promise<void> {
+  const path = secureTokenPath(key);
+  if (existsSync(path)) await unlink(path);
+}
+
+async function clearStoredAuth(): Promise<void> {
+  accessToken = undefined;
+  pendingLogin = undefined;
+  await deleteSecureValue("oidc-refresh");
+  notifyAuthChanged();
+}
+
+function parseConnectionInput(value: unknown): ConnectionTargetInput {
+  if (!value || typeof value !== "object")
+    throw new Error("A connection target is required.");
+  const input = value as Record<string, unknown>;
+  const text = (key: string): string | undefined =>
+    typeof input[key] === "string" ? input[key] : undefined;
+  const endpoint = text("endpoint");
+  if (!endpoint?.trim()) throw new Error("A connection URL is required.");
+  return {
+    endpoint,
+    displayName: text("displayName"),
+    ca: text("ca"),
+    cert: text("cert"),
+    key: text("key"),
+  };
+}
+
+async function persistConnectionTarget(): Promise<void> {
+  const target = connectionManager?.getPersistedTarget();
+  if (!target) {
+    await deleteSecureValue("connection-target");
+    return;
+  }
+  await writeSecureValue("connection-target", JSON.stringify(target));
 }
 
 async function exchangeAuthToken(input: {
@@ -188,7 +254,7 @@ async function exchangeAuthToken(input: {
   nonce?: string;
   refreshToken?: string;
 }): Promise<{ accessToken: string; refreshToken?: string }> {
-  const response = await fetch(`${gatewayUrl}/api/v1/auth/token`, {
+  const response = await fetch(`${requiredGatewayUrl()}/api/v1/auth/token`, {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -230,7 +296,7 @@ async function startLogin(providerId: string): Promise<boolean> {
     .digest("base64url");
   const authorize = new URL(
     `/api/v1/auth/authorize/${encodeURIComponent(providerId)}`,
-    gatewayUrl,
+    requiredGatewayUrl(),
   );
   authorize.searchParams.set("redirectUri", "harbor-desk://auth/callback");
   authorize.searchParams.set("state", state);
@@ -406,7 +472,10 @@ async function createWindow(): Promise<void> {
         responseHeaders: {
           ...details.responseHeaders,
           "Content-Security-Policy": [
-            `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${gatewayOrigin} ${gatewayWebSocketOrigin} ${devOrigin} ${devWebSocketOrigin}; font-src 'self' data:;`,
+            `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${[
+              ...connectionOrigins(),
+              ...(!app.isPackaged ? [devOrigin, devWebSocketOrigin] : []),
+            ].join(" ")}; font-src 'self' data:;`,
           ],
         },
       });
@@ -491,32 +560,6 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle(
-    "secure-store:set",
-    async (_event, key: unknown, value: unknown) => {
-      if (typeof key !== "string" || typeof value !== "string")
-        throw new Error("Invalid secure storage input");
-      await writeSecureValue(key, value);
-      return true;
-    },
-  );
-
-  ipcMain.handle("secure-store:get", async (_event, key: unknown) => {
-    if (typeof key !== "string" || !safeStorage.isEncryptionAvailable())
-      return undefined;
-    const path = secureTokenPath(key);
-    if (!existsSync(path)) return undefined;
-    const value = await readFile(path);
-    return safeStorage.decryptString(value);
-  });
-
-  ipcMain.handle("secure-store:delete", async (_event, key: unknown) => {
-    if (typeof key !== "string") return false;
-    const path = secureTokenPath(key);
-    if (existsSync(path)) await unlink(path);
-    return true;
-  });
-
   ipcMain.handle("app:open-external", async (_event, url: unknown) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
     await shell.openExternal(url);
@@ -556,20 +599,47 @@ function registerIpc(): void {
     return refreshed;
   });
   ipcMain.handle("auth:logout", async () => {
-    accessToken = undefined;
-    const path = secureTokenPath("oidc-refresh");
-    if (existsSync(path)) await unlink(path);
-    notifyAuthChanged();
+    await clearStoredAuth();
     return true;
   });
 
-  ipcMain.handle("gateway:get-runtime-status", () => ({
-    ...managedGatewayStatus,
-  }));
   ipcMain.handle(
-    "gateway:get-session-token",
-    () => managedGateway?.sessionToken,
+    "connection:get-status",
+    () => connectionManager?.getStatus() ?? { ...connectionStatus },
   );
+  ipcMain.handle("connection:get-session-token", () =>
+    connectionManager?.getSessionToken(),
+  );
+  ipcMain.handle("connection:configure", async (_event, value: unknown) => {
+    if (!connectionManager)
+      throw new Error("The connection manager is unavailable.");
+    const input = parseConnectionInput(value);
+    try {
+      const status = await connectionManager.configure(input);
+      await persistConnectionTarget();
+      await clearStoredAuth();
+      mainWindow?.webContents.reload();
+      return status;
+    } catch (error) {
+      await persistConnectionTarget().catch(() => undefined);
+      await clearStoredAuth();
+      mainWindow?.webContents.reload();
+      throw error;
+    }
+  });
+  ipcMain.handle("connection:clear", async () => {
+    const status = await connectionManager?.clear();
+    await deleteSecureValue("connection-target");
+    await clearStoredAuth();
+    mainWindow?.webContents.reload();
+    return (
+      status ?? {
+        mode: "unconfigured",
+        message: "No Gateway or Docker Engine connection is configured.",
+        localGateway: false,
+      }
+    );
+  });
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -589,7 +659,7 @@ if (!gotLock) {
   });
   app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("harbor-desk");
-    await initializeManagedGateway();
+    await initializeConnection();
     registerIpc();
     createTray();
     await restoreAuth();
@@ -614,16 +684,15 @@ app.on("before-quit", () => {
 });
 
 app.on("will-quit", (event) => {
-  const runtime = managedGateway;
+  const runtime = connectionManager;
   if (!runtime || gatewayShutdownStarted) return;
 
   event.preventDefault();
   gatewayShutdownStarted = true;
-  managedGateway = undefined;
   void runtime
     .close()
     .catch((error) =>
-      console.error("[gateway] shutdown failed", {
+      console.error("[connection] Local Gateway wrapper shutdown failed", {
         message: error instanceof Error ? error.message : String(error),
       }),
     )

@@ -6,21 +6,23 @@ that must survive every change.
 ## Product boundary
 
 Harbor Desk uses a client-first lifecycle for remote container operations. The
-Electron main process starts a token-protected loopback gateway automatically,
-but the renderer and preload boundary are not Docker clients. They must not
-acquire a Docker CLI, Docker SDK, Docker socket, direct Engine transport, or
-filesystem access to deployment secrets. Registration input may carry endpoint
-and mTLS material to the gateway, but stored values must never be returned to
-the renderer.
+Electron main process detects one configured Gateway or Docker Engine target.
+It uses a Server Gateway directly, or starts a token-protected loopback wrapper
+only for a raw Engine target. The renderer and preload boundary are not Docker
+clients. They must not acquire a Docker CLI, Docker SDK, Docker socket, direct
+Engine transport, or filesystem access to deployment secrets. Registration
+input may carry endpoint and mTLS material to the main process, but stored
+values must never be returned to the renderer.
 
 All Docker Engine communication is mediated by the Fastify gateway. The gateway
 is responsible for authentication, server-side host authorization, request
 validation, audit metadata, capability checks, and connector calls. A UI host
 selector is never a security boundary.
 
-The desktop-managed gateway must bind only to exact `127.0.0.1`, require its
-random per-launch token for protected development-mode requests, and keep that
-token out of logs and diagnostics. Non-loopback gateway URLs remain external.
+The Local Gateway wrapper must bind only to exact `127.0.0.1` on an
+OS-assigned port, require its random per-launch token for protected requests,
+and keep that token and TLS material out of logs and diagnostics. Non-loopback
+Server Gateway URLs are used directly.
 
 ## Local-engine fixture
 
