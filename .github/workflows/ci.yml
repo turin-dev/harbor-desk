@@ -99,6 +99,9 @@ jobs:
       - name: Run full-stack gateway smoke
         run: pnpm run smoke:live
 
+      - name: Run Electron click-through smoke
+        run: pnpm run smoke:click
+
   supply-chain:
     name: Dependency review
     runs-on: ubuntu-latest

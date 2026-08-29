@@ -51,6 +51,10 @@ still change between minor versions.
   capability matrix, and the full container lifecycle (create + start,
   stop, start, force delete) over HTTP. Engine and pull target are
   overrideable via `SMOKE_ENDPOINT` / `SMOKE_IMAGE`.
+- The Electron click-through smoke is now cross-platform (it resolves the
+  Electron binary through the desktop package and runs headless Linux under
+  `xvfb-run` with `--no-sandbox`), and CI's `docker-live-smoke` job runs it
+  on both Ubuntu and Windows runners after the Engine and full-stack smokes.
 
 - `pnpm run smoke:click` runs an Electron click-through smoke
   (`scripts/electron-click-smoke.mjs`) that seeds one stopped container

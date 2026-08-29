@@ -12,6 +12,7 @@
 // build:renderer).
 
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -20,7 +21,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoDir = resolve(fileURLToPath(import.meta.url), "../..");
 const desktopDir = join(repoDir, "apps/desktop");
-const electronBin = join(desktopDir, "node_modules/electron/dist/electron.exe");
+// The electron package exports the platform binary path (electron.exe on
+// Windows, electron elsewhere).
+const electronBin = createRequire(join(desktopDir, "package.json"))("electron");
 const endpoint = process.env.SMOKE_ENDPOINT ?? "npipe:////./pipe/docker_engine";
 const tag = "harbor-desk-click-" + Date.now().toString(36);
 const containerName = tag + "-c";
@@ -246,13 +249,17 @@ try {
   check("seeded one stopped container", seeded, containerName);
 
   staticServer = await startStaticServer();
+  const isLinux = process.platform === "linux";
+  // Headless Linux (CI) needs an X server; GitHub runners ship xvfb-run.
+  const electronArgs = [
+    desktopDir,
+    "--remote-debugging-port=9222",
+    "--user-data-dir=" + userDataDir,
+    ...(isLinux ? ["--no-sandbox"] : []),
+  ];
   electronProc = spawn(
-    electronBin,
-    [
-      desktopDir,
-      "--remote-debugging-port=9222",
-      "--user-data-dir=" + userDataDir,
-    ],
+    isLinux ? "xvfb-run" : electronBin,
+    isLinux ? ["-a", electronBin, ...electronArgs] : electronArgs,
     {
       stdio: ["ignore", "ignore", "ignore"],
       cwd: desktopDir,
