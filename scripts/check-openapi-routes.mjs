@@ -78,12 +78,27 @@ while ((match = routePattern.exec(source)) !== null) {
 }
 
 const missing = [...routePaths].filter((route) => !specRoutes.has(route));
-if (missing.length > 0) {
-  console.error(
-    "OpenAPI contract drift detected: gateway routes missing from the spec",
+const stale = [...specRoutes]
+  .filter((route) => !routePaths.has(route))
+  .filter(
+    (route) => !route.startsWith("OPTIONS ") && !route.startsWith("HEAD "),
   );
-  for (const route of missing.sort()) {
-    console.error("  missing: " + route);
+if (missing.length > 0 || stale.length > 0) {
+  if (missing.length > 0) {
+    console.error(
+      "OpenAPI contract drift detected: gateway routes missing from the spec",
+    );
+    for (const route of missing.sort()) {
+      console.error("  missing: " + route);
+    }
+  }
+  if (stale.length > 0) {
+    console.error(
+      "OpenAPI contract drift detected: spec entries with no gateway route",
+    );
+    for (const route of stale.sort()) {
+      console.error("  stale: " + route);
+    }
   }
   process.exit(1);
 }
@@ -92,7 +107,9 @@ const schemaCount = Object.keys(spec.components?.schemas ?? {}).length;
 console.log(
   "openapi-route-check: " +
     routePaths.size +
-    " gateway routes all present in the OpenAPI contract (" +
+    " gateway routes and " +
+    specRoutes.size +
+    " spec entries match bidirectionally (" +
     pathCount +
     " paths, " +
     schemaCount +
