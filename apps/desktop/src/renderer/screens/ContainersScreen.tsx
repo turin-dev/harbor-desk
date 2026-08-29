@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogTitle,
   Drawer,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   Menu,
@@ -34,6 +35,7 @@ import {
   Add,
   Check,
   CheckBoxOutlineBlank,
+  CleaningServices,
   Close,
   CloudOff,
   CloudQueue,
@@ -53,15 +55,20 @@ import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
 import {
+  useCancelOperation,
   useContainerAction,
   useContainerInspect,
   useContainerLogs,
   useContainerStats,
   useContainers,
   useCreateContainer,
+  useCurrentUser,
   useDeleteContainer,
   useHosts,
+  useOperation,
+  usePruneResources,
 } from "../state/queries.js";
+import { isPruneActive } from "../state/prune-state.js";
 import { useUiStore } from "../state/ui-store.js";
 
 export function ContainersScreen() {
@@ -90,6 +97,15 @@ export function ContainersScreen() {
   const action = useContainerAction(hostId);
   const create = useCreateContainer(hostId);
   const remove = useDeleteContainer(hostId);
+  const { data: user } = useCurrentUser();
+  const canPrune = (user?.role ?? "viewer") !== "viewer";
+  const prune = usePruneResources(hostId);
+  const cancel = useCancelOperation();
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneAll, setPruneAll] = useState(false);
+  const [pruneOperationId, setPruneOperationId] = useState<string>();
+  const pruneOperation = useOperation(pruneOperationId);
+  const pruneActive = isPruneActive(prune.isPending, pruneOperation?.status);
   const showToast = useUiStore((state) => state.showToast);
   const setTerminalOpen = useUiStore((state) => state.setTerminalOpen);
   const setTerminalContainer = useUiStore(
@@ -306,6 +322,34 @@ export function ContainersScreen() {
             >
               Refresh
             </Button>
+            <Tooltip
+              title={
+                canPrune
+                  ? "Remove stopped containers from the remote host"
+                  : "Operator permission required"
+              }
+            >
+              <span>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CleaningServices />}
+                  onClick={() => {
+                    setPruneAll(false);
+                    setPruneOpen(true);
+                  }}
+                  disabled={
+                    !selectedHost ||
+                    !hostOnline ||
+                    !capabilityAvailable ||
+                    !canPrune ||
+                    pruneActive
+                  }
+                >
+                  Prune
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               variant="contained"
               startIcon={<Add />}
@@ -780,6 +824,103 @@ export function ContainersScreen() {
             }
           >
             {remove.isPending ? "Deleting…" : "Delete container"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={pruneOpen}
+        onClose={
+          pruneActive && pruneOperationId
+            ? () => {
+                cancel.mutate(pruneOperationId, {
+                  onSuccess: () => showToast("Prune cancelled.", "info"),
+                  onError: (error) =>
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "The prune could not be cancelled.",
+                      "error",
+                    ),
+                });
+              }
+            : () => !prune.isPending && setPruneOpen(false)
+        }
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Prune stopped containers?</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5}>
+            <Typography color="text.secondary">
+              Removes stopped containers on the selected remote host that are no
+              longer needed. Pruned containers cannot be recovered.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={pruneAll}
+                  onChange={(event) => setPruneAll(event.target.checked)}
+                />
+              }
+              label="Include named containers, not just anonymous ones"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => !prune.isPending && setPruneOpen(false)}
+            disabled={pruneActive}
+          >
+            {pruneActive ? "Cancel prune" : "Cancel"}
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const operationId = crypto.randomUUID();
+              setPruneOperationId(operationId);
+              prune.mutate(
+                { kind: "containers", all: pruneAll, operationId },
+                {
+                  onSuccess: (operation) => {
+                    setPruneOpen(false);
+                    setPruneOperationId(undefined);
+                    showToast(
+                      operation.status === "succeeded"
+                        ? "Stopped containers were pruned from the remote host."
+                        : operation.status === "cancelled"
+                          ? "Container prune cancelled."
+                          : (operation.message ?? "Container prune failed."),
+                      operation.status === "succeeded"
+                        ? "success"
+                        : operation.status === "cancelled"
+                          ? "info"
+                          : "error",
+                    );
+                  },
+                  onError: (error) => {
+                    setPruneOpen(false);
+                    setPruneOperationId(undefined);
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "Container prune failed.",
+                      "error",
+                    );
+                  },
+                },
+              );
+            }}
+            disabled={pruneActive}
+            startIcon={
+              pruneActive ? (
+                <CircularProgress size={15} color="inherit" />
+              ) : (
+                <CleaningServices />
+              )
+            }
+          >
+            {pruneActive ? "Pruning…" : "Prune"}
           </Button>
         </DialogActions>
       </Dialog>
