@@ -50,6 +50,14 @@ still change between minor versions.
   (202) while the host stays online. Engine and image are overrideable
   via `SMOKE_ENDPOINT` / `SMOKE_IMAGE`.
 
+- `pnpm run smoke:click` runs an Electron click-through smoke
+  (`scripts/electron-click-smoke.mjs`) that seeds one stopped container
+  on the live Engine, serves the built renderer (`build:renderer`
+  output) to a real Electron main process, and drives the Prune
+  header button, confirm dialog, and success toast over CDP before
+  asserting the Engine reports the container gone. The Engine
+  endpoint is overrideable via `SMOKE_ENDPOINT`.
+
 ### Fixed
 
 - The Troubleshoot screen can now retry a saved Gateway or Docker Engine target
