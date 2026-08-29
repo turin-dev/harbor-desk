@@ -84,6 +84,7 @@ still change between minor versions.
   coalesced into one connection attempt.
 - The Hosts screen now distinguishes an unconfigured, unavailable, or failed
   host list from a reachable Gateway with no registered Engine hosts.
+- The Gateway now treats an empty `PORT` environment variable the same as an unset one (falling back to 4310) instead of parsing it to port 0, which previously happened to bind an ephemeral port instead of the configured default.
 
 ## [0.6.1] - 2026-08-29
 
