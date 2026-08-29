@@ -560,3 +560,70 @@ test("cancels a running prune, aborts the Engine request, and keeps the host onl
     .data.find((item: { id: string }) => item.id === host.id);
   assert.equal(cancelledHost.status, "online");
 });
+
+test("covers host re-probe, capabilities, removal, and container action routes", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Route coverage engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+
+  const reprobe = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/test",
+  });
+  assert.equal(reprobe.statusCode, 200);
+  assert.equal(reprobe.json().data.status, "offline");
+
+  const caps = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts/" + host.id + "/capabilities",
+  });
+  assert.equal(caps.statusCode, 200);
+  assert.equal(caps.json().data.containers, false);
+  assert.equal(caps.json().data.imageScan, false);
+
+  const unknownHostAction = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/does-not-exist/containers/abc/stop",
+  });
+  assert.equal(unknownHostAction.statusCode, 403);
+  assert.equal(unknownHostAction.json().error.code, "host_access_denied");
+
+  const badAction = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers/abc/freeze",
+  });
+  assert.equal(badAction.statusCode, 400);
+  assert.equal(badAction.json().error.code, "validation_error");
+
+  const stop = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers/abc/stop",
+  });
+  assert.equal(stop.statusCode, 202);
+  const operation = stop.json().data;
+  assert.equal(operation.status, "failed");
+  assert.equal(operation.kind, "container.stop");
+  assert.equal(operation.error.code, "host_unavailable");
+
+  const remove = await harbor.app.inject({
+    method: "DELETE",
+    url: "/api/v1/hosts/" + host.id,
+  });
+  assert.equal(remove.statusCode, 204);
+
+  const hosts = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts",
+  });
+  assert.deepEqual(hosts.json().data, []);
+
+  const capsAfterRemove = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts/" + host.id + "/capabilities",
+  });
+  assert.equal(capsAfterRemove.statusCode, 403);
+  assert.equal(capsAfterRemove.json().error.code, "host_access_denied");
+});
