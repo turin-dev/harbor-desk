@@ -820,7 +820,17 @@ export class DockerEngineClient {
 
     return await new Promise<IncomingMessage>((resolve, reject) => {
       request.once("response", resolve);
-      request.once("error", reject);
+      request.once("error", (error: Error) => {
+        if (
+          options.signal &&
+          ((error as NodeJS.ErrnoException).code === "ABORT_ERR" ||
+            error.name === "AbortError")
+        ) {
+          reject(this.abortError());
+          return;
+        }
+        reject(error);
+      });
       request.once("timeout", () => {
         request.destroy(
           new Error(

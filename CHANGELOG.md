@@ -32,6 +32,16 @@ still change between minor versions.
 - An admin-only Audit log screen (`/audit`) rendering the gateway audit
   trail (actor, host, action, resource, result) with loading, error,
   empty, and non-admin permission states.
+- The Containers screen now offers the same clean-up (prune) action as the
+  other resource screens: a confirm dialog with a live "Cancel prune"
+  operation, progress polling, and operator-only availability. The dialog
+  text matches the Engine contract, which removes every stopped container
+  including named ones.
+- `pnpm run smoke:engine` runs a real-Engine smoke script
+  (`scripts/engine-smoke.mjs`) against a live Docker Engine (Docker
+  Desktop named pipe by default; override with `SMOKE_ENDPOINT`) that
+  exercises probe, volume, network, container lifecycle, and the
+  in-flight abort paths, and cleans up only the resources it created.
 
 ### Fixed
 

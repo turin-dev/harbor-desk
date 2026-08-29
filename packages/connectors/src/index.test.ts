@@ -147,6 +147,32 @@ test("fails fast for container mutations with an already aborted signal", async 
       error instanceof HttpError && error.code === "operation_cancelled",
   );
 });
+
+test("maps an in-flight request abort to the deterministic cancel code", async () => {
+  const http = await import("node:http");
+  // Hold the connection without sending response headers so the request
+  // stays in flight inside requestRaw until the signal aborts it.
+  const server = http.createServer((_request, _response) => undefined);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    assert.fail("expected a numeric test server port");
+  }
+  const client = new DockerEngineClient({
+    endpoint: "http://127.0.0.1:" + address.port,
+  });
+  const controller = new AbortController();
+  const pending = client.deleteVolume("smoke-volume", false, controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  controller.abort();
+  await assert.rejects(
+    pending,
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "operation_cancelled",
+  );
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
 test("maps prune endpoints to a normalized prune summary", async () => {
   const containers = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
   (containers as unknown as { requestJson: unknown }).requestJson = async (

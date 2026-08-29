@@ -45,6 +45,7 @@
     "check": "pnpm run build && pnpm -r --if-present --sort run check",
     "dev": "concurrently -k \"pnpm --filter @harbor/gateway dev\" \"pnpm --filter @harbor/desktop dev\"",
     "soak:8h": "node scripts/soak-runtime.mjs",
+    "smoke:engine": "node scripts/engine-smoke.mjs",
     "package:linux": "pnpm --filter @harbor/desktop... build && pnpm --filter @harbor/desktop package:linux",
     "package:mac": "pnpm --filter @harbor/desktop... build && pnpm --filter @harbor/desktop package:mac",
     "package:win": "pnpm --filter @harbor/desktop... build && pnpm --filter @harbor/desktop package:win",

@@ -4,14 +4,12 @@ import {
   Alert,
   Box,
   Button,
-  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Drawer,
-  FormControlLabel,
   IconButton,
   InputAdornment,
   Menu,
@@ -102,7 +100,6 @@ export function ContainersScreen() {
   const prune = usePruneResources(hostId);
   const cancel = useCancelOperation();
   const [pruneOpen, setPruneOpen] = useState(false);
-  const [pruneAll, setPruneAll] = useState(false);
   const [pruneOperationId, setPruneOperationId] = useState<string>();
   const pruneOperation = useOperation(pruneOperationId);
   const pruneActive = isPruneActive(prune.isPending, pruneOperation?.status);
@@ -334,10 +331,7 @@ export function ContainersScreen() {
                   variant="outlined"
                   color="error"
                   startIcon={<CleaningServices />}
-                  onClick={() => {
-                    setPruneAll(false);
-                    setPruneOpen(true);
-                  }}
+                  onClick={() => setPruneOpen(true)}
                   disabled={
                     !selectedHost ||
                     !hostOnline ||
@@ -852,18 +846,9 @@ export function ContainersScreen() {
         <DialogContent>
           <Stack spacing={1.5}>
             <Typography color="text.secondary">
-              Removes stopped containers on the selected remote host that are no
-              longer needed. Pruned containers cannot be recovered.
+              Removes every stopped container on the selected remote host,
+              including named ones. Pruned containers cannot be recovered.
             </Typography>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={pruneAll}
-                  onChange={(event) => setPruneAll(event.target.checked)}
-                />
-              }
-              label="Include named containers, not just anonymous ones"
-            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -880,7 +865,7 @@ export function ContainersScreen() {
               const operationId = crypto.randomUUID();
               setPruneOperationId(operationId);
               prune.mutate(
-                { kind: "containers", all: pruneAll, operationId },
+                { kind: "containers", all: false, operationId },
                 {
                   onSuccess: (operation) => {
                     setPruneOpen(false);
