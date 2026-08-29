@@ -7,6 +7,98 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Troubleshoot screen can now retry a saved Gateway or Docker Engine target
+  using the existing secure configuration, and successful retries refresh the
+  active host/resource queries without requiring the user to re-enter mTLS data.
+- The shared desktop status bar now exposes the same saved-connection retry
+  action while the Gateway or Engine is unavailable, with duplicate retries
+  coalesced into one connection attempt.
+- The Hosts screen now distinguishes an unconfigured, unavailable, or failed
+  host list from a reachable Gateway with no registered Engine hosts.
+
+## [0.6.1] - 2026-08-29
+
+### Fixed
+
+- The Connections screen now exposes the initial connection button when no
+  target is configured and opens the Gateway/Docker Engine registration dialog.
+- Unavailable-connection guidance now points to the Connections screen instead
+  of sending users to a settings page without an action.
+
+## [0.6.0] - 2026-08-29
+
+### Changed
+
+- The desktop now accepts one Gateway or Docker Engine target and detects the
+  connection type before creating the renderer. Server Gateways are used
+  directly; raw Engine targets start a Local Gateway wrapper on a dynamic
+  loopback port, so a Server Gateway and an unnecessary local Gateway are no
+  longer started together.
+- Connection settings, diagnostics, CSP, REST, and WebSocket routing now use
+  the active Gateway uniformly. Remote raw Engines require HTTPS plus CA,
+  client certificate, and private key material held by the Electron main
+  process.
+
+## [0.5.3] - 2026-08-29
+
+### Added
+
+- The default server-side `npm exec --yes harbor-desk` command now opens a
+  keyboard-driven TUI when run from an interactive SSH session.
+- The TUI supplies safe defaults, detects the server Docker socket as the
+  common connection, keeps remote Engine mTLS as an advanced choice, validates
+  the configuration, and prints SSH tunnel plus Gateway/WebSocket connection
+  information after installation.
+- `install` is now an alias for `install-server`; non-interactive sessions fail
+  with explicit SSH guidance instead of waiting for input.
+
+### Changed
+
+- Server setup no longer opens a browser or requires users to assemble long
+  installation arguments for the normal interactive path. Explicit options
+  remain available for automation.
+
+## [0.5.2] - 2026-08-29
+
+### Added
+
+- The server-side `npx harbor-desk install-server` flow now supports a remote
+  Docker Engine over HTTPS mTLS with `--engine-endpoint`, CA, client
+  certificate, and client private key file options.
+- Remote Engine credentials stay on the server host and are mounted read-only
+  into the gateway container without mounting a Docker socket. The interactive
+  setup and `-AI` context describe both Engine transport choices.
+
+### Security
+
+- Remote Engine mode requires HTTPS and all three mTLS files, validates them
+  before writing the install target, and rejects mixing remote mTLS with the
+  privileged local Docker socket mount.
+
+## [0.5.1] - 2026-08-28
+
+### Added
+
+- The server-side `npx harbor-desk install-server` flow now offers an
+  interactive terminal setup for the destination, port, network binding,
+  authentication mode, OIDC provider file, browser origins, and Docker socket
+  acknowledgement.
+- `-AI` and `--ai-context` now provide stable machine-readable setup context for
+  non-interactive agents without reading Docker, touching the filesystem, or
+  exposing provider credentials.
+- The installer supports an explicit public preview binding with OIDC, HTTPS
+  provider endpoint validation, narrow allowed origins, and protected generated
+  environment settings while retaining loopback plus development authentication
+  as the default.
+
+### Security
+
+- Public server preview setup rejects development authentication and requires
+  OIDC configuration. TLS or reverse-proxy termination, firewall policy, and
+  operational controls remain deployment responsibilities.
+
 ## [0.5.0] - 2026-08-28
 
 ### Added
@@ -28,23 +120,21 @@ still change between minor versions.
 
 ### Added
 
-- The desktop app now starts its Fastify gateway automatically on the default
-  `http://127.0.0.1:4310` loopback endpoint before loading the interface and
-  closes the managed runtime when the app quits.
-- Each managed gateway receives a random per-launch desktop session token.
+- The desktop preview used a Fastify gateway on its default loopback endpoint
+  before loading the interface and closed that runtime when the app quit.
+- Each preview wrapper received a random per-launch desktop session token.
   Development authentication fails closed without that token even though the
   packaged `file://` renderer origin is allowed through CORS.
 
 ### Changed
 
-- Harbor Desk now follows a client-first startup flow: users launch one desktop
-  app and then add Docker Engine connections without running a separate gateway
-  command. Explicit non-loopback gateway configurations and
-  `HARBOR_DISABLE_MANAGED_GATEWAY=1` continue to use an external gateway instead
-  of silently starting another service.
-- Troubleshoot and About diagnostics now report whether the gateway was managed
-  by the desktop, supplied externally, disabled, or unavailable without exposing
-  its per-launch token.
+- Harbor Desk's 0.4 preview followed a client-first startup flow: users
+  launched one desktop app and then added Docker Engine connections without a
+  separate gateway command. Explicit non-loopback configurations used an
+  external gateway.
+- Troubleshoot and About diagnostics reported whether the preview runtime was
+  local, external, disabled, or unavailable without exposing its per-launch
+  token.
 
 ### Fixed
 
@@ -195,7 +285,12 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.6.1
+[0.6.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.6.0
+[0.5.3]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.3
+[0.5.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.2
+[0.5.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.4.0
 [0.3.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.3.2

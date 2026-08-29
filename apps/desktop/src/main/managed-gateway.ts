@@ -3,126 +3,114 @@ import { buildApp, type HarborApp } from "@harbor/gateway/app";
 import { loadGatewayConfig } from "@harbor/config";
 
 const healthPath = "/health/live";
+const providersPath = "/api/v1/auth/providers";
 
-export type ManagedGatewayState =
-  "managed" | "external" | "disabled" | "unavailable";
-
-export interface ManagedGatewayStatus {
-  state: ManagedGatewayState;
-  url: string;
-  message: string;
+export interface LocalEngineTarget {
+  endpoint: string;
+  displayName: string;
+  ca?: string;
+  cert?: string;
+  key?: string;
 }
 
-export interface ManagedGatewayRuntime {
-  status: ManagedGatewayStatus;
-  sessionToken?: string;
+export interface LocalGatewayRuntime {
+  url: string;
+  sessionToken: string;
+  engineHostId: string;
+  engineOnline: boolean;
   close: () => Promise<void>;
 }
 
-export interface ManagedGatewayOptions {
-  gatewayUrl: string;
+export interface LocalGatewayOptions {
+  engine: LocalEngineTarget;
   gatewayVersion: string;
-  disabled?: boolean;
   sessionToken?: string;
-  probeTimeoutMs?: number;
   env?: NodeJS.ProcessEnv;
 }
 
-export interface ManagedGatewayTarget {
-  host: "127.0.0.1";
-  port: number;
-  origin: string;
-}
-
-export function managedGatewayTarget(
-  gatewayUrl: string,
-): ManagedGatewayTarget | undefined {
-  let url: URL;
+function originForEndpoint(endpoint: string): string | undefined {
   try {
-    url = new URL(gatewayUrl);
+    const url = new URL(endpoint);
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    )
+      return undefined;
+    return url.origin;
   } catch {
     return undefined;
   }
-
-  if (
-    url.protocol !== "http:" ||
-    url.hostname !== "127.0.0.1" ||
-    url.pathname !== "/" ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    return undefined;
-
-  const port = Number(url.port || "80");
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) return undefined;
-
-  return { host: "127.0.0.1", port, origin: url.origin };
 }
 
-async function isHarborGatewayReachable(
-  origin: string,
-  timeoutMs: number,
-): Promise<boolean> {
+export function isHttpEndpoint(endpoint: string): boolean {
   try {
-    const response = await fetch(`${origin}${healthPath}`, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) return false;
-    const body = (await response.json().catch(() => undefined)) as
-      { data?: { version?: unknown; status?: unknown } } | undefined;
-    return (
-      typeof body?.data?.version === "string" &&
-      (body.data.status === "ok" || body.data.status === "degraded")
-    );
+    const protocol = new URL(endpoint).protocol;
+    return protocol === "http:" || protocol === "https:";
   } catch {
     return false;
   }
 }
 
-function closedRuntime(status: ManagedGatewayStatus): ManagedGatewayRuntime {
-  return { status, close: () => Promise.resolve() };
+function isGatewayHealthBody(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const data = (value as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return false;
+  const health = data as {
+    status?: unknown;
+    version?: unknown;
+    dependencies?: unknown;
+  };
+  return (
+    typeof health.version === "string" &&
+    (health.status === "ok" || health.status === "degraded") &&
+    Boolean(health.dependencies && typeof health.dependencies === "object")
+  );
 }
 
-export async function startManagedGateway(
-  options: ManagedGatewayOptions,
-): Promise<ManagedGatewayRuntime> {
-  const target = managedGatewayTarget(options.gatewayUrl);
-  if (!target)
-    return closedRuntime({
-      state: "external",
-      url: options.gatewayUrl,
-      message:
-        "The configured gateway remains external; automatic startup is limited to a 127.0.0.1 HTTP root URL.",
-    });
+export async function probeHarborGateway(
+  endpoint: string,
+  timeoutMs = 1_500,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const origin = originForEndpoint(endpoint);
+  if (!origin) return false;
 
-  if (options.disabled)
-    return closedRuntime({
-      state: "disabled",
-      url: target.origin,
-      message: "Automatic gateway startup is disabled.",
+  try {
+    const healthResponse = await fetchImpl(`${origin}${healthPath}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
     });
+    if (!healthResponse.ok) return false;
+    const healthBody = (await healthResponse.json().catch(() => undefined)) as
+      unknown | undefined;
+    if (!isGatewayHealthBody(healthBody)) return false;
 
-  if (
-    await isHarborGatewayReachable(target.origin, options.probeTimeoutMs ?? 750)
-  )
-    return closedRuntime({
-      state: "external",
-      url: target.origin,
-      message: "An existing Harbor Desk gateway is already listening.",
+    const providersResponse = await fetchImpl(`${origin}${providersPath}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
     });
+    if (!providersResponse.ok) return false;
+    const providersBody = (await providersResponse
+      .json()
+      .catch(() => undefined)) as { data?: unknown } | undefined;
+    return Boolean(providersBody?.data && Array.isArray(providersBody.data));
+  } catch {
+    return false;
+  }
+}
 
-  const sessionToken =
-    options.sessionToken ?? randomBytes(32).toString("base64url");
+function gatewayConfig(options: LocalGatewayOptions) {
   const env = options.env ?? process.env;
   const config = loadGatewayConfig({
     ...env,
     NODE_ENV: "development",
     AUTH_MODE: "dev",
-    HOST: target.host,
-    PORT: String(target.port),
+    HOST: "127.0.0.1",
+    PORT: "0",
     GATEWAY_VERSION: options.gatewayVersion,
     ALLOWED_ORIGINS: [
       "null",
@@ -130,39 +118,54 @@ export async function startManagedGateway(
       "http://localhost:5173",
     ].join(","),
   });
-  config.desktopSessionToken = sessionToken;
+  config.desktopSessionToken =
+    options.sessionToken ?? randomBytes(32).toString("base64url");
+  config.devEngineHost = options.engine.endpoint;
+  config.devEngineDisplayName = options.engine.displayName;
+  config.devEngineTls = {
+    ca: options.engine.ca,
+    cert: options.engine.cert,
+    key: options.engine.key,
+  };
+  return config;
+}
 
+export async function startLocalEngineGateway(
+  options: LocalGatewayOptions,
+): Promise<LocalGatewayRuntime> {
+  const config = gatewayConfig(options);
   let harbor: HarborApp | undefined;
   try {
     harbor = await buildApp(config);
-    await harbor.app.listen({ host: target.host, port: target.port });
+    await harbor.app.listen({ host: "127.0.0.1", port: 0 });
+    const address = harbor.app.server.address();
+    if (!address || typeof address === "string")
+      throw new Error("The local Gateway wrapper did not expose a port.");
+
+    const host = harbor.registry
+      .list()
+      .find((candidate) => candidate.id === "dev-remote-engine");
+    if (!host)
+      throw new Error("The local Gateway wrapper did not register the Engine.");
+
+    const url = `http://127.0.0.1:${address.port}`;
+    const running = harbor;
+    let closed = false;
+    return {
+      url,
+      sessionToken: config.desktopSessionToken!,
+      engineHostId: host.id,
+      engineOnline: host.status === "online",
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        await running.app.close();
+      },
+    };
   } catch (error) {
     await harbor?.app.close().catch(() => undefined);
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? String((error as { code?: unknown }).code)
-        : undefined;
-    const detail =
-      code === "EADDRINUSE"
-        ? `Loopback port ${target.port} is already in use.`
-        : code === "EACCES"
-          ? `Access to loopback port ${target.port} was denied.`
-          : `Initialization failed on ${target.origin}.`;
-    throw new Error(`The desktop-managed gateway could not start. ${detail}`, {
+    throw new Error("The local Gateway wrapper could not start.", {
       cause: error,
     });
   }
-
-  const running = harbor;
-  return {
-    status: {
-      state: "managed",
-      url: target.origin,
-      message: "The gateway was started automatically by Harbor Desk.",
-    },
-    sessionToken,
-    close: async () => {
-      await running.app.close();
-    },
-  };
 }

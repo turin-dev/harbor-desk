@@ -39,7 +39,7 @@ test("exposes health, current user, and typed empty host responses", async (t) =
   assert.deepEqual(hosts.json().data, []);
 });
 
-test("protects a desktop-managed loopback gateway with its per-launch token", async (t) => {
+test("protects a Local Gateway wrapper with its per-launch token", async (t) => {
   const desktopSessionToken = "desktop-session-token-1234567890";
   const harbor = await buildApp({
     ...testConfig,

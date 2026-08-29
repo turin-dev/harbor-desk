@@ -59,13 +59,13 @@ export function renderReleaseNotes({
     const channel = registryHasPreviewRelease
       ? ` under the \`preview\` dist-tag (the default \`latest\` dist-tag is unchanged)`
       : "";
-    npmStatus = `The npm registry provides \`${releaseTag}\`${channel}. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpx --yes harbor-desk@${normalizedVersion} --version\n\`\`\``;
+    npmStatus = `The npm registry provides \`${releaseTag}\`${channel}. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpm exec --yes harbor-desk@${normalizedVersion} -- --version\n\`\`\``;
   } else {
     const registryDetail = npmLatestVersion.trim()
-      ? `At release time, the npm registry's latest version was \`v${npmLatestVersion.trim().replace(/^v/, "")}\`, so an unpinned \`npx --yes harbor-desk\` command will not fetch \`${releaseTag}\`.`
+      ? `At release time, the npm registry's latest version was \`v${npmLatestVersion.trim().replace(/^v/, "")}\`, so an unpinned \`npm exec --yes harbor-desk\` command will not fetch \`${releaseTag}\`.`
       : `The release workflow could not confirm that \`${releaseTag}\` was available from the npm registry.`;
 
-    npmStatus = `${registryDetail}\n\nAfter downloading and verifying the attached tarball, run it explicitly:\n\n\`\`\`bash\nnpx --yes --package ./${tarball} harbor-desk --version\n\`\`\``;
+    npmStatus = `${registryDetail}\n\nAfter downloading and verifying the attached tarball, run it explicitly:\n\n\`\`\`bash\nnpm exec --yes --package ./${tarball} -- harbor-desk --version\n\`\`\``;
   }
 
   return `## Harbor Desk ${releaseTag} preview
@@ -92,7 +92,7 @@ ${npmStatus}
 
 This remains a prerelease. Desktop binaries are currently **unsigned**; verify \`SHA256SUMS\` before installation and use a source build where signed artifacts are required.
 
-The desktop starts its bundled gateway automatically on \`127.0.0.1\` and does not require a local Docker Engine. Docker access remains behind the gateway; the renderer never receives a Docker socket or direct Engine connection. The optional server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
+The desktop detects a configured Harbor Desk Gateway or Docker Engine. It uses a Server Gateway directly, and starts a bundled Local Gateway wrapper on \`127.0.0.1\` only for a raw Engine target. Docker access remains behind a Gateway; the renderer never receives a Docker socket or direct Engine connection. The optional server installer supports controlled Linux, Windows, and macOS Docker hosts, but requires explicit \`--allow-local-engine-socket\` acknowledgement before mounting a host's Docker Engine socket.
 
 See [\`SECURITY.md\`](https://github.com/turin-dev/harbor-desk/blob/${releaseTag}/SECURITY.md) for the current security and dependency-advisory boundary.`;
 }

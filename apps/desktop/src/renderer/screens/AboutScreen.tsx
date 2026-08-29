@@ -11,7 +11,7 @@ import {
 } from "@mui/material";
 import { PageHeader } from "../components/PageHeader.js";
 import {
-  useDesktopGatewayRuntime,
+  useConnectionStatus,
   useGatewayHealth,
   useHosts,
 } from "../state/queries.js";
@@ -19,7 +19,7 @@ import { useUiStore } from "../state/ui-store.js";
 
 export function AboutScreen() {
   const health = useGatewayHealth();
-  const runtime = useDesktopGatewayRuntime();
+  const connection = useConnectionStatus();
   const { data: hosts = [] } = useHosts();
   const showToast = useUiStore((state) => state.showToast);
   const updateStatus = useUiStore((state) => state.updateStatus);
@@ -34,7 +34,8 @@ export function AboutScreen() {
       latestRelease: updateStatus.latestVersion ?? "unknown",
       gateway: health.data?.version ?? "unavailable",
       gatewayStatus: health.data?.status ?? "unavailable",
-      gatewayRuntime: runtime.data?.state ?? "unavailable",
+      connectionMode: connection.data?.mode ?? "unavailable",
+      localGateway: connection.data?.localGateway ?? false,
       hostCount: hosts.length,
       hostStatuses: hosts.map((host) => ({ id: host.id, status: host.status })),
     },
@@ -62,7 +63,7 @@ export function AboutScreen() {
       <PageHeader
         eyebrow="Harbor Desk"
         title="About"
-        description="A client-first Apache-2.0 operations app that automatically starts its loopback gateway."
+        description="A client-first Apache-2.0 operations app that routes every operation through a detected Gateway."
       />
       <Stack spacing={2}>
         <Paper sx={{ p: 3 }}>
@@ -102,8 +103,8 @@ export function AboutScreen() {
               value={health.data?.version ?? "Unavailable"}
             />
             <VersionRow
-              label="Gateway runtime"
-              value={runtime.data?.state ?? "Unavailable"}
+              label="Connection type"
+              value={connection.data?.mode ?? "Unavailable"}
             />
             <VersionRow label="Registered hosts" value={String(hosts.length)} />
             <VersionRow label="Update check" value={updateStatus.state} />
@@ -121,10 +122,11 @@ export function AboutScreen() {
                 color="text.secondary"
                 sx={{ mt: 0.45, maxWidth: 720 }}
               >
-                Harbor Desk starts a token-protected gateway on 127.0.0.1 before
-                opening the interface. The renderer still has no Docker CLI,
-                Docker socket, or direct daemon access; stored Engine
-                credentials and selected hosts remain gateway policy data.
+                Harbor Desk detects whether the configured target is a Server
+                Gateway or a Docker Engine. Server Gateways are used directly;
+                Engine targets receive a token-protected Local Gateway wrapper
+                on loopback. The renderer never calls a Docker Engine, Docker
+                socket, or Docker CLI directly.
               </Typography>
             </Box>
           </Stack>

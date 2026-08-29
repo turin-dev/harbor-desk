@@ -80,15 +80,21 @@ export class HostRegistry {
       );
       const client = this.createClient({
         endpoint: options.config.devEngineHost,
-        ca: options.config.devEngineTls?.caFile
-          ? readFileSync(options.config.devEngineTls.caFile, "utf8")
-          : undefined,
-        cert: options.config.devEngineTls?.certFile
-          ? readFileSync(options.config.devEngineTls.certFile, "utf8")
-          : undefined,
-        key: options.config.devEngineTls?.keyFile
-          ? readFileSync(options.config.devEngineTls.keyFile, "utf8")
-          : undefined,
+        ca:
+          options.config.devEngineTls?.ca ??
+          (options.config.devEngineTls?.caFile
+            ? readFileSync(options.config.devEngineTls.caFile, "utf8")
+            : undefined),
+        cert:
+          options.config.devEngineTls?.cert ??
+          (options.config.devEngineTls?.certFile
+            ? readFileSync(options.config.devEngineTls.certFile, "utf8")
+            : undefined),
+        key:
+          options.config.devEngineTls?.key ??
+          (options.config.devEngineTls?.keyFile
+            ? readFileSync(options.config.devEngineTls.keyFile, "utf8")
+            : undefined),
       });
       this.records.set(id, {
         client,
@@ -97,7 +103,7 @@ export class HostRegistry {
           id,
           options.config.devEngineDisplayName ?? "Development remote engine",
           client,
-          "development-socket",
+          this.connectionMode(options.config.devEngineHost),
         ),
       });
     }
@@ -573,6 +579,14 @@ export class HostRegistry {
           ? { ca: input.ca, cert: input.cert, key: input.key }
           : undefined,
     });
+  }
+
+  private connectionMode(endpoint: string): Host["connectionMode"] {
+    const protocol = new URL(endpoint).protocol;
+    if (protocol === "https:") return "mtls";
+    if (protocol === "npipe:" || protocol === "unix:")
+      return "development-socket";
+    return "development-http";
   }
 
   private createPublicHost(

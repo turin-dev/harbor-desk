@@ -60,9 +60,10 @@ clearly what you did and did not exercise.
   Docker socket, filesystem-secret, or direct Engine access.
 - All Engine requests stay behind the gateway, where authentication,
   authorization, host grants, request validation, and auditing are enforced.
-- The desktop-managed gateway must remain loopback-only, and protected requests
+- The Local Gateway wrapper must remain loopback-only, and protected requests
   must fail closed without its random per-launch token. Never log or persist
-  that token.
+  that token or raw Engine TLS material. A Server Gateway is an external
+  configured connection and must not cause a desktop wrapper to start.
 - Do not add a generic URL proxy, arbitrary host-shell endpoint, or a way to
   forward raw Engine credentials to a desktop client.
 - Update checks must remain metadata-only in the Electron main process. The

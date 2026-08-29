@@ -33,15 +33,15 @@ versions do not replace npm's `latest` dist-tag. Use an exact version when
 testing a preview:
 
 ```powershell
-npm view harbor-desk@0.5.0 version
+npm view harbor-desk@0.5.1 version
 npm view harbor-desk dist-tags --json
-npx --yes harbor-desk@0.5.0 --version
+npm exec --yes harbor-desk@0.5.1 -- --version
 ```
 
 ## Re-running an existing release
 
 After changing the workflow, use `workflow_dispatch` with the existing tag,
-for example `v0.5.0`. The workflow checks the already-published-version case
+for example `v0.5.1`. The workflow checks the already-published-version case
 without attempting an overwrite, refreshes the GitHub release assets and notes,
 and verifies the public npm metadata again.
 

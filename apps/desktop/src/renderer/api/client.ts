@@ -18,17 +18,9 @@ import type {
   VolumeSummary,
 } from "@harbor/contracts";
 
-const fallbackGatewayUrl = (
-  (import.meta.env.VITE_GATEWAY_URL as string | undefined) ??
-  "http://127.0.0.1:4310"
+const browserGatewaySeed = (
+  (import.meta.env?.VITE_GATEWAY_URL as string | undefined) ?? ""
 ).replace(/\/$/, "");
-const gatewayUrlObject = new URL(fallbackGatewayUrl);
-if (
-  gatewayUrlObject.protocol !== "http:" &&
-  gatewayUrlObject.protocol !== "https:"
-) {
-  throw new Error("VITE_GATEWAY_URL must use HTTP or HTTPS.");
-}
 
 function websocketUrl(gatewayUrl: string, path: string): string {
   return `${gatewayUrl.replace(/^http/i, "ws")}${path}`;
@@ -48,38 +40,87 @@ export class GatewayClientError extends Error {
   }
 }
 
-export interface DesktopGatewayRuntimeStatus {
-  state: "managed" | "external" | "disabled" | "unavailable";
-  url: string;
-  message: string;
+const gatewayRequestTimeoutMs = 15_000;
+
+export function gatewayTransportError(error: unknown): GatewayClientError {
+  const name = error instanceof Error ? error.name : "";
+  const timedOut = name === "TimeoutError";
+  const cancelled = name === "AbortError";
+  return new GatewayClientError(0, {
+    code: timedOut ? "gateway_timeout" : "gateway_unavailable",
+    message: timedOut
+      ? "The Gateway request timed out. Check the connection and try again."
+      : cancelled
+        ? "The Gateway request was cancelled."
+        : "The Gateway could not be reached. Check the connection and try again.",
+    retryable: true,
+    requestId: "unknown",
+  });
 }
 
-export const desktopGateway = {
-  getRuntimeStatus: async (): Promise<DesktopGatewayRuntimeStatus> => {
-    if (!window.harbor?.gateway)
-      return {
-        state: "disabled",
-        url: fallbackGatewayUrl,
-        message: "Automatic gateway startup is available in the desktop app.",
-      };
+export interface DesktopConnectionStatus {
+  mode: "unconfigured" | "detecting" | "gateway" | "engine" | "unavailable";
+  endpoint?: string;
+  gatewayUrl?: string;
+  message: string;
+  localGateway: boolean;
+  engineHostId?: string;
+  engineOnline?: boolean;
+}
 
-    return window.harbor.gateway.getRuntimeStatus().catch(() => ({
-      state: "unavailable",
-      url: fallbackGatewayUrl,
-      message: "The desktop gateway runtime status could not be read.",
-    }));
+export const desktopConnection = {
+  getStatus: async (): Promise<DesktopConnectionStatus> => {
+    if (window.harbor?.connection)
+      return window.harbor.connection.getStatus().catch(() => ({
+        mode: "unavailable",
+        message: "The connection runtime status could not be read.",
+        localGateway: false,
+      }));
+
+    if (!browserGatewaySeed)
+      return {
+        mode: "unconfigured",
+        message: "No Gateway or Docker Engine connection is configured.",
+        localGateway: false,
+      };
+    try {
+      const url = new URL(browserGatewaySeed);
+      if (url.protocol !== "http:" && url.protocol !== "https:")
+        throw new Error();
+      return {
+        mode: "gateway",
+        endpoint: browserGatewaySeed,
+        gatewayUrl: browserGatewaySeed,
+        message: "Using the configured Harbor Desk Gateway.",
+        localGateway: false,
+      };
+    } catch {
+      return {
+        mode: "unavailable",
+        endpoint: browserGatewaySeed,
+        message: "The configured connection URL is invalid.",
+        localGateway: false,
+      };
+    }
   },
 };
 
 async function activeGatewayUrl(): Promise<string> {
-  const runtime = await desktopGateway.getRuntimeStatus();
+  const connection = await desktopConnection.getStatus();
   try {
-    const url = new URL(runtime.url);
+    if (!connection.gatewayUrl) throw new Error();
+    const url = new URL(connection.gatewayUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:")
       throw new Error();
-    return runtime.url.replace(/\/$/, "");
+    return connection.gatewayUrl.replace(/\/$/, "");
   } catch {
-    return fallbackGatewayUrl;
+    throw new GatewayClientError(0, {
+      code: "connection_unavailable",
+      message:
+        connection.message || "No active Harbor Desk Gateway is configured.",
+      retryable: true,
+      requestId: "unknown",
+    });
   }
 }
 
@@ -90,10 +131,11 @@ async function fetchWithToken(
 ): Promise<Response> {
   const [gatewayUrl, desktopSessionToken] = await Promise.all([
     activeGatewayUrl(),
-    window.harbor?.gateway.getSessionToken().catch(() => undefined),
+    window.harbor?.connection.getSessionToken().catch(() => undefined),
   ]);
   return fetch(`${gatewayUrl}${path}`, {
     ...options,
+    signal: options.signal ?? AbortSignal.timeout(gatewayRequestTimeoutMs),
     headers: {
       accept: "application/json",
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
@@ -107,37 +149,43 @@ async function fetchWithToken(
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let accessToken = await window.harbor?.auth
-    .getAccessToken()
-    .catch(() => undefined);
-  let response = await fetchWithToken(path, options, accessToken);
-  if (response.status === 401 && window.harbor?.auth.refresh) {
-    const refreshed = await window.harbor.auth.refresh().catch(() => false);
-    if (refreshed) {
-      accessToken = await window.harbor.auth
-        .getAccessToken()
-        .catch(() => undefined);
-      response = await fetchWithToken(path, options, accessToken);
+  try {
+    let accessToken = await window.harbor?.auth
+      .getAccessToken()
+      .catch(() => undefined);
+    let response = await fetchWithToken(path, options, accessToken);
+    if (response.status === 401 && window.harbor?.auth.refresh) {
+      const refreshed = await window.harbor.auth.refresh().catch(() => false);
+      if (refreshed) {
+        accessToken = await window.harbor.auth
+          .getAccessToken()
+          .catch(() => undefined);
+        response = await fetchWithToken(path, options, accessToken);
+      }
     }
-  }
-  if (response.status === 401)
-    await window.harbor?.auth.logout().catch(() => undefined);
+    if (response.status === 401)
+      await window.harbor?.auth.logout().catch(() => undefined);
 
-  if (!response.ok) {
-    const body = (await response.json().catch(() => undefined)) as
-      ApiErrorResponse | undefined;
-    if (body?.error) throw new GatewayClientError(response.status, body.error);
-    throw new GatewayClientError(response.status, {
-      code: "http_error",
-      message: `Gateway returned HTTP ${response.status}.`,
-      retryable: response.status >= 500,
-      requestId: "unknown",
-    });
-  }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => undefined)) as
+        ApiErrorResponse | undefined;
+      if (body?.error)
+        throw new GatewayClientError(response.status, body.error);
+      throw new GatewayClientError(response.status, {
+        code: "http_error",
+        message: `Gateway returned HTTP ${response.status}.`,
+        retryable: response.status >= 500,
+        requestId: "unknown",
+      });
+    }
 
-  if (response.status === 204) return undefined as T;
-  const body = (await response.json()) as ApiResponse<T>;
-  return body.data;
+    if (response.status === 204) return undefined as T;
+    const body = (await response.json()) as ApiResponse<T>;
+    return body.data;
+  } catch (error) {
+    if (error instanceof GatewayClientError) throw error;
+    throw gatewayTransportError(error);
+  }
 }
 
 export const gateway = {

@@ -1,0 +1,27 @@
+services:
+  gateway:
+    environment:
+      DEV_ENGINE_HOST: ${DEV_ENGINE_HOST:?Set DEV_ENGINE_HOST to the HTTPS Docker Engine endpoint}
+      DEV_ENGINE_DISPLAY_NAME: ${DEV_ENGINE_DISPLAY_NAME:-Remote mTLS Docker Engine}
+      DEV_ENGINE_CA_FILE: /run/harbor-desk/engine/ca.pem
+      DEV_ENGINE_CERT_FILE: /run/harbor-desk/engine/client-cert.pem
+      DEV_ENGINE_KEY_FILE: /run/harbor-desk/engine/client-key.pem
+    volumes:
+      - type: bind
+        source: ${ENGINE_CA_FILE:?Set ENGINE_CA_FILE to the Engine CA certificate path}
+        target: /run/harbor-desk/engine/ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ENGINE_CERT_FILE:?Set ENGINE_CERT_FILE to the Engine client certificate path}
+        target: /run/harbor-desk/engine/client-cert.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ENGINE_KEY_FILE:?Set ENGINE_KEY_FILE to the Engine client private key path}
+        target: /run/harbor-desk/engine/client-key.pem
+        read_only: true
+        bind:
+          create_host_path: false

@@ -17,10 +17,13 @@ import {
 } from "@mui/material";
 import { Add, DeleteOutline, Dns, Refresh } from "@mui/icons-material";
 import type { Host, HostRegistrationInput } from "@harbor/contracts";
+import { ConnectionTargetDialog } from "../components/ConnectionTargetDialog.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
+import { resolveHostsEmptyState } from "./hosts-state.js";
 import {
   useAddHost,
+  useConnectionStatus,
   useHosts,
   useRemoveHost,
   useTestHost,
@@ -36,16 +39,25 @@ const initialForm: HostRegistrationInput = {
 };
 
 export function HostsScreen() {
-  const { data: hosts = [], isLoading, refetch } = useHosts();
+  const {
+    data: hosts = [],
+    isLoading,
+    isError: hostsError,
+    refetch,
+  } = useHosts();
+  const connection = useConnectionStatus();
   const addHost = useAddHost();
   const testHost = useTestHost();
   const removeHost = useRemoveHost();
   const showToast = useUiStore((state) => state.showToast);
   const setSelectedHostId = useUiStore((state) => state.setSelectedHostId);
   const [open, setOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const [form, setForm] = useState<HostRegistrationInput>(initialForm);
   const [formError, setFormError] = useState<string>();
   const [removeTarget, setRemoveTarget] = useState<Host>();
+  const localEngineMode = connection.data?.mode === "engine";
+  const emptyState = resolveHostsEmptyState(connection.data, hostsError);
 
   const submit = () => {
     setFormError(undefined);
@@ -79,7 +91,7 @@ export function HostsScreen() {
       <PageHeader
         eyebrow="Connections"
         title="Docker Engine connections"
-        description="The gateway starts automatically with the client. After registration, Engine endpoints and mTLS keys are stored and used only by that policy boundary."
+        description="Hosts are managed by the active Server Gateway or Local Gateway wrapper. Engine endpoints and mTLS keys stay behind that policy boundary."
         actions={
           <>
             <Button
@@ -92,26 +104,56 @@ export function HostsScreen() {
             <Button
               variant="contained"
               startIcon={<Add />}
-              onClick={() => setOpen(true)}
+              onClick={() => setConnectionOpen(true)}
             >
-              Add remote host
+              {connection.data?.mode === "unconfigured" ||
+              connection.data?.mode === "unavailable"
+                ? "Connect Docker Engine"
+                : "Change connection"}
             </Button>
+            {!localEngineMode && connection.data?.mode === "gateway" && (
+              <Button variant="outlined" onClick={() => setOpen(true)}>
+                Add remote host
+              </Button>
+            )}
           </>
         }
       />
+      {localEngineMode && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          This host was created automatically from the Docker Engine target in
+          Settings. Change that target there; the raw Engine endpoint is not
+          registered as a separate client connection.
+        </Alert>
+      )}
       {hosts.length === 0 && !isLoading ? (
         <Paper sx={{ p: 3, mb: 2 }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Dns color="primary" />
-            <Box>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+          >
+            <Dns color={emptyState.tone} />
+            <Box sx={{ flex: 1 }}>
               <Typography sx={{ fontWeight: 650 }}>
-                Gateway ready · No Engine connected
+                {emptyState.title}
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 0.35 }}>
-                Add an HTTPS Engine endpoint with server-side mTLS material. No
-                separate gateway startup command is required.
+                {emptyState.description}
               </Typography>
             </Box>
+            {emptyState.action && (
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  emptyState.action?.kind === "retry-hosts"
+                    ? void refetch()
+                    : setConnectionOpen(true)
+                }
+              >
+                {emptyState.action.label}
+              </Button>
+            )}
           </Stack>
         </Paper>
       ) : (
@@ -173,7 +215,11 @@ export function HostsScreen() {
                         ),
                     });
                   }}
-                  disabled={testHost.isPending || removeHost.isPending}
+                  disabled={
+                    localEngineMode ||
+                    testHost.isPending ||
+                    removeHost.isPending
+                  }
                 >
                   {testHost.isPending ? "Testing…" : "Test connection"}
                 </Button>
@@ -182,7 +228,7 @@ export function HostsScreen() {
                     size="small"
                     color="error"
                     onClick={() => setRemoveTarget(host)}
-                    disabled={removeHost.isPending}
+                    disabled={localEngineMode || removeHost.isPending}
                     aria-label={`Remove ${host.displayName}`}
                   >
                     <DeleteOutline fontSize="small" />
@@ -193,6 +239,10 @@ export function HostsScreen() {
           ))}
         </Stack>
       )}
+      <ConnectionTargetDialog
+        open={connectionOpen}
+        onClose={() => setConnectionOpen(false)}
+      />
       <Dialog
         open={open}
         onClose={() => !addHost.isPending && setOpen(false)}

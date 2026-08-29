@@ -30,6 +30,10 @@ export interface GatewayConfig {
   devEngineHost?: string;
   devEngineDisplayName?: string;
   devEngineTls?: {
+    /** Inline PEM material is used only by an in-process development wrapper. */
+    ca?: string;
+    cert?: string;
+    key?: string;
     caFile?: string;
     certFile?: string;
     keyFile?: string;
@@ -89,15 +93,17 @@ export function loadGatewayConfig(
   const providers = parseProviders(env.OIDC_PROVIDERS_JSON);
   const authMode =
     env.AUTH_MODE === "oidc" || nodeEnv === "production" ? "oidc" : "dev";
+  const defaultAllowedOrigins =
+    nodeEnv === "production"
+      ? "http://localhost:5173,http://127.0.0.1:5173"
+      : "http://localhost:5173,http://127.0.0.1:5173,null";
 
   return {
     nodeEnv,
     host: env.HOST ?? "127.0.0.1",
     port: asNumber(env.PORT, 4310),
     gatewayVersion: env.GATEWAY_VERSION ?? "0.1.0",
-    allowedOrigins: (
-      env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173"
-    )
+    allowedOrigins: (env.ALLOWED_ORIGINS ?? defaultAllowedOrigins)
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean),

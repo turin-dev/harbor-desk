@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -11,9 +12,14 @@ import {
 } from "../scripts/generate-release-notes.mjs";
 import {
   buildServerInstallPlan,
+  collectServerInstallArguments,
   formatServerInstallPlan,
+  formatServerInstallerConnectionInfo,
+  formatServerInstallerTuiSummary,
   installServer,
   parseServerInstallArgs,
+  runServerInstaller,
+  serverInstallerAiContext,
   serverPlatformSupport,
   serverInstallerPayload,
   serverInstallerUsage,
@@ -43,20 +49,12 @@ function runCli(...arguments_) {
   });
 }
 
-test("prints the safe npx bootstrap contract by default", () => {
+test("requires an interactive SSH TTY for the default server setup", () => {
   const result = runCli();
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Harbor Desk npx bootstrap/);
-  assert.match(
-    result.stdout,
-    /does not access Docker Desktop, a local Docker socket/,
-  );
-  assert.match(
-    result.stdout,
-    /https:\/\/github\.com\/turin-dev\/harbor-desk\/releases/,
-  );
-  assert.match(result.stdout, /install-server --directory/);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Interactive setup requires a TTY/);
+  assert.match(result.stderr, /interactive SSH session/);
 });
 
 test("reports the package manifest version", async () => {
@@ -68,12 +66,46 @@ test("reports the package manifest version", async () => {
   assert.equal(result.stdout.trim(), manifest.version);
 });
 
+test("prints machine-readable AI setup context without requiring a directory", () => {
+  for (const arguments_ of [
+    ["install-server", "-AI"],
+    ["install-server", "--ai-context"],
+    ["-AI"],
+  ]) {
+    const result = runCli(...arguments_);
+
+    assert.equal(result.status, 0, result.stderr);
+    const context = JSON.parse(result.stdout);
+    assert.equal(context.command, "harbor-desk install-server");
+    assert.equal(context.defaults.bindHost, "127.0.0.1");
+    assert.equal(context.defaults.authMode, "dev");
+    assert.equal(context.networkModes.public.bindHost, "0.0.0.0");
+    assert.match(context.interaction.nonInteractive.publicExample, /--public/);
+    assert.match(
+      context.interaction.nonInteractive.remoteMtlsExample,
+      /--engine-endpoint https:\/\/engine\.example\.com:2376/,
+    );
+    assert.deepEqual(context.engineConnections.remoteMtls.requiredOptions, [
+      "--engine-endpoint <https-url>",
+      "--engine-ca-file <path>",
+      "--engine-cert-file <path>",
+      "--engine-key-file <path>",
+    ]);
+    assert.doesNotMatch(
+      result.stdout,
+      /SECRET_MASTER_KEY|clientSecret|access_token/,
+    );
+  }
+
+  assert.equal(JSON.parse(serverInstallerAiContext()).schemaVersion, 1);
+});
+
 test("rejects unknown arguments without performing an action", () => {
   const result = runCli("--not-a-command");
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown argument: --not-a-command/);
-  assert.match(result.stderr, /Harbor Desk npx bootstrap/);
+  assert.match(result.stderr, /Harbor Desk server setup/);
 });
 
 test("documents the explicit preview server installer without hiding socket risk", () => {
@@ -111,7 +143,10 @@ test("parses an isolated server install plan and keeps it loopback-only", () => 
 
   assert.equal(options.directory, resolve(cwd, "server-install"));
   assert.equal(options.port, 4312);
+  assert.equal(options.bindHost, "127.0.0.1");
+  assert.equal(options.authMode, "dev");
   assert.equal(options.allowLocalEngineSocket, true);
+  assert.ok(options.allowedOrigins.includes("null"));
   assert.equal(plan.healthUrl, "http://127.0.0.1:4312/health/live");
   assert.match(plan.environmentFile, /\.harbor-desk\.env$/);
   assert.ok(
@@ -120,6 +155,109 @@ test("parses an isolated server install plan and keeps it loopback-only", () => 
     ),
     "the npm package must carry the Compose payload needed by install-server",
   );
+});
+
+test("parses an explicitly public OIDC server install plan", () => {
+  const options = parseServerInstallArgs(
+    [
+      "--directory",
+      "./server-install",
+      "--public",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./oidc-providers.json",
+      "--allowed-origin",
+      "https://client.example.com",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+  const plan = buildServerInstallPlan(options, {
+    root: process.cwd(),
+    version: "0.4.0-test",
+  });
+
+  assert.equal(options.bindHost, "0.0.0.0");
+  assert.equal(options.authMode, "oidc");
+  assert.equal(
+    options.oidcProvidersFile,
+    resolve(process.cwd(), "oidc-providers.json"),
+  );
+  assert.ok(
+    options.allowedOrigins.includes(
+      new URL("https://client.example.com").origin,
+    ),
+  );
+  assert.match(formatServerInstallPlan(plan), /public network/);
+  assert.match(
+    formatServerInstallPlan(plan),
+    /TLS\/reverse proxy and a firewall/,
+  );
+});
+
+test("rejects the opaque packaged-desktop origin for public server binds", () => {
+  assert.throws(
+    () =>
+      parseServerInstallArgs(
+        [
+          "--directory",
+          "./server-install",
+          "--public",
+          "--auth-mode",
+          "oidc",
+          "--oidc-providers-file",
+          "./oidc-providers.json",
+          "--allowed-origin",
+          "null",
+          "--allow-local-engine-socket",
+        ],
+        { cwd: process.cwd() },
+      ),
+    /opaque packaged-desktop origin/i,
+  );
+});
+
+test("parses a remote Docker Engine mTLS install plan without a socket mount", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "harbor-desk-engine-mtls-"));
+  try {
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+      ],
+      { cwd: sandbox, platform: "win32" },
+    );
+    const plan = buildServerInstallPlan(options, {
+      root: process.cwd(),
+      version: "0.5.2-test",
+    });
+
+    assert.equal(options.engineEndpoint, "https://engine.example.com:2376");
+    assert.equal(options.engineSocket, undefined);
+    assert.equal(options.engineCaFile, join(sandbox, "engine-ca.pem"));
+    assert.equal(
+      options.engineCertFile,
+      join(sandbox, "engine-client-cert.pem"),
+    );
+    assert.equal(options.engineKeyFile, join(sandbox, "engine-client-key.pem"));
+    assert.equal(plan.engineMode, "remote-mtls");
+    assert.match(
+      plan.composeFiles[1],
+      /docker-compose\.preview\.remote-engine\.yml$/,
+    );
+    assert.match(formatServerInstallPlan(plan), /server-side mTLS/);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test("requires an explicit destination and rejects malformed server options", () => {
@@ -141,6 +279,234 @@ test("requires an explicit destination and rejects malformed server options", ()
     () =>
       parseServerInstallArgs(["--directory", "./server-install", "--unknown"]),
     /Unknown install-server option: --unknown/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs(["--directory", "./server-install", "--public"]),
+    /requires --auth-mode oidc/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--bind-host",
+        "0.0.0.0",
+        "--auth-mode",
+        "dev",
+      ]),
+    /development authentication cannot be exposed/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--auth-mode",
+        "oidc",
+      ]),
+    /--oidc-providers-file/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--allowed-origin",
+        "https://client.example.com/path",
+      ]),
+    /allowed-origin must be an http or https origin/,
+  );
+});
+
+test("does not wait for input when install-server has no TTY", async () => {
+  await assert.rejects(
+    () =>
+      runServerInstaller([], {
+        stdin: { isTTY: false },
+        stdout: { isTTY: false, write() {} },
+      }),
+    /Interactive setup requires a TTY/,
+  );
+});
+
+test("collects the safe local Docker setup through the TUI contract", async () => {
+  const cwd = resolve(process.cwd(), "tui-local");
+  const selections = {
+    "Docker Engine connection": "local",
+    "Network binding": "local",
+    Authentication: "dev",
+  };
+  const confirms = [];
+  const ui = {
+    async text(field) {
+      return field.defaultValue ?? "";
+    },
+    async select(field) {
+      return selections[field.title] ?? field.options[0].value;
+    },
+    async confirm(field) {
+      confirms.push(field.title);
+      return true;
+    },
+  };
+
+  const arguments_ = await collectServerInstallArguments({ cwd, ui });
+
+  assert.deepEqual(arguments_, [
+    "--directory",
+    join(cwd, "harbor-desk-server"),
+    "--port",
+    "4311",
+    "--allow-local-engine-socket",
+  ]);
+  assert.deepEqual(confirms, [
+    "Allow Harbor Desk to mount the server Docker socket?",
+    "Install Harbor Desk with this configuration?",
+  ]);
+});
+
+test("collects remote Engine mTLS details through the TUI contract", async () => {
+  const cwd = resolve(process.cwd(), "tui-remote");
+  const textValues = {
+    "Install directory": join(cwd, "gateway"),
+    "Gateway port": "4312",
+    "Remote HTTPS Engine endpoint": "https://docker.example.com:2376",
+    "Engine CA certificate path": "./ca.pem",
+    "Engine client certificate path": "./client-cert.pem",
+    "Engine client private key path": "./client-key.pem",
+  };
+  const selections = {
+    "Docker Engine connection": "remote",
+    "Network binding": "local",
+    Authentication: "dev",
+  };
+  const ui = {
+    async text(field) {
+      return textValues[field.title] ?? field.defaultValue ?? "";
+    },
+    async select(field) {
+      return selections[field.title] ?? field.options[0].value;
+    },
+    async confirm() {
+      return true;
+    },
+  };
+
+  const arguments_ = await collectServerInstallArguments({ cwd, ui });
+
+  assert.deepEqual(arguments_, [
+    "--directory",
+    join(cwd, "gateway"),
+    "--port",
+    "4312",
+    "--engine-endpoint",
+    "https://docker.example.com:2376",
+    "--engine-ca-file",
+    "./ca.pem",
+    "--engine-cert-file",
+    "./client-cert.pem",
+    "--engine-key-file",
+    "./client-key.pem",
+  ]);
+});
+
+test("prints SSH and WSS-aware connection information", () => {
+  const local = parseServerInstallArgs(
+    [
+      "--directory",
+      "./gateway",
+      "--port",
+      "4312",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+  const publicOptions = parseServerInstallArgs(
+    [
+      "--directory",
+      "./gateway-public",
+      "--public",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./oidc.json",
+      "--allowed-origin",
+      "https://desk.example.com",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+
+  assert.match(formatServerInstallerConnectionInfo(local), /ssh -N -L 4312/);
+  assert.match(
+    formatServerInstallerTuiSummary(local),
+    /Desktop URL after tunnel/,
+  );
+  assert.match(
+    formatServerInstallerConnectionInfo(publicOptions),
+    /wss:\/\/<your-domain>/,
+  );
+});
+
+test("validates an OIDC provider file before touching the install target", async () => {
+  const options = parseServerInstallArgs(
+    [
+      "--directory",
+      "./server-install",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./missing-oidc-providers.json",
+      "--allow-local-engine-socket",
+      "--dry-run",
+    ],
+    { cwd: process.cwd() },
+  );
+
+  await assert.rejects(
+    () =>
+      installServer(options, {
+        root: resolve(process.cwd(), "missing-server-payload"),
+        platform: "win32",
+        version: "0.4.0-test",
+        run: async () => {},
+      }),
+    /Could not read the OIDC provider configuration file/,
+  );
+});
+
+test("passes installer authentication and bind settings to the preview Compose template", async () => {
+  const compose = await readFile(
+    new URL("../infra/compose/docker-compose.preview.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(compose, /AUTH_MODE: \$\{AUTH_MODE:-dev\}/);
+  assert.match(compose, /OIDC_PROVIDERS_JSON: \$\{OIDC_PROVIDERS_JSON:-\[\]\}/);
+  assert.match(
+    compose,
+    /ALLOWED_ORIGINS: \$\{ALLOWED_ORIGINS:-http:\/\/localhost:5173,http:\/\/127\.0\.0\.1:5173,null\}/,
+  );
+  assert.match(
+    compose,
+    /- "\$\{HARBOR_GATEWAY_BIND_HOST:-127\.0\.0\.1\}:\$\{HARBOR_GATEWAY_PORT:-4311\}:4310"/,
+  );
+
+  const remoteCompose = await readFile(
+    new URL(
+      "../infra/compose/docker-compose.preview.remote-engine.yml",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    remoteCompose,
+    /DEV_ENGINE_CA_FILE: \/run\/harbor-desk\/engine\/ca\.pem/,
+  );
+  assert.match(
+    remoteCompose,
+    /source: \$\{ENGINE_KEY_FILE:\?Set ENGINE_KEY_FILE/,
   );
 });
 
@@ -180,6 +546,245 @@ test("packs a minimal reproducible server payload for install-server", () => {
     existsSync(resolve(packageRoot, "server-payload")),
     false,
     "postpack must remove the generated payload from the source checkout",
+  );
+});
+
+test("writes validated public OIDC settings to the protected environment and Compose process", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "harbor-desk-server-install-"));
+  const destination = join(sandbox, "install");
+  const providerFile = join(sandbox, "oidc-providers.json");
+  await writeFile(
+    providerFile,
+    JSON.stringify([
+      {
+        id: "company",
+        displayName: "Company SSO",
+        issuer: "https://id.example.com",
+        audience: "harbor-desk",
+        clientId: "harbor-desktop",
+        clientSecret: "test-client-secret",
+        scopes: ["openid", "profile", "email"],
+      },
+    ]),
+  );
+
+  let prepared = false;
+  try {
+    const prepare = spawnSync(
+      process.execPath,
+      ["scripts/prepare-npm-server-payload.mjs"],
+      { cwd: packageRoot, encoding: "utf8" },
+    );
+    assert.equal(prepare.status, 0, prepare.stderr);
+    prepared = true;
+
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        destination,
+        "--port",
+        "49231",
+        "--public",
+        "--auth-mode",
+        "oidc",
+        "--oidc-providers-file",
+        providerFile,
+        "--allowed-origin",
+        "https://client.example.com",
+        "--allow-local-engine-socket",
+      ],
+      { cwd: packageRoot, platform: "win32" },
+    );
+    const calls = [];
+    const result = await installServer(options, {
+      root: packageRoot,
+      platform: "win32",
+      version: "0.4.0-test",
+      randomBytesFn: () => Buffer.alloc(32, 0x61),
+      run: async (...arguments_) => calls.push(arguments_),
+      waitForHealth: async () => {},
+    });
+
+    assert.equal(result.installed, true);
+    const environment = await readFile(result.plan.environmentFile, "utf8");
+    assert.match(environment, /HARBOR_GATEWAY_BIND_HOST="0\.0\.0\.0"/);
+    assert.match(environment, /AUTH_MODE="oidc"/);
+    assert.ok(
+      environment.includes(
+        'ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,https://client.example.com"',
+      ),
+    );
+
+    const providerLine = environment
+      .split("\n")
+      .find((line) => line.startsWith("OIDC_PROVIDERS_JSON="));
+    assert.ok(providerLine);
+    const providers = JSON.parse(
+      JSON.parse(providerLine.slice("OIDC_PROVIDERS_JSON=".length)),
+    );
+    assert.equal(providers[0].clientSecret, "test-client-secret");
+    assert.equal(calls[1][2].env.AUTH_MODE, "oidc");
+    assert.equal(calls[1][2].env.HARBOR_GATEWAY_BIND_HOST, "0.0.0.0");
+    assert.equal(
+      calls[1][2].env.OIDC_PROVIDERS_JSON,
+      JSON.stringify(providers),
+    );
+  } finally {
+    if (prepared) {
+      const clean = spawnSync(
+        process.execPath,
+        ["scripts/prepare-npm-server-payload.mjs", "--clean"],
+        { cwd: packageRoot, encoding: "utf8" },
+      );
+      assert.equal(clean.status, 0, clean.stderr);
+    }
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("installs remote Engine mTLS configuration without mounting the Docker socket", async () => {
+  const sandbox = await mkdtemp(
+    join(tmpdir(), "harbor-desk-engine-mtls-install-"),
+  );
+  const destination = join(sandbox, "install");
+  const tlsFiles = {
+    ca: join(sandbox, "engine-ca.pem"),
+    cert: join(sandbox, "engine-client-cert.pem"),
+    key: join(sandbox, "engine-client-key.pem"),
+  };
+  for (const file of Object.values(tlsFiles)) {
+    await writeFile(file, "test certificate material\n");
+  }
+
+  let prepared = false;
+  try {
+    const prepare = spawnSync(
+      process.execPath,
+      ["scripts/prepare-npm-server-payload.mjs"],
+      { cwd: packageRoot, encoding: "utf8" },
+    );
+    assert.equal(prepare.status, 0, prepare.stderr);
+    prepared = true;
+
+    const options = parseServerInstallArgs(
+      [
+        "--directory",
+        destination,
+        "--port",
+        "49232",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        tlsFiles.ca,
+        "--engine-cert-file",
+        tlsFiles.cert,
+        "--engine-key-file",
+        tlsFiles.key,
+      ],
+      { cwd: packageRoot, platform: "win32" },
+    );
+    const calls = [];
+    const result = await installServer(options, {
+      root: packageRoot,
+      platform: "win32",
+      version: "0.5.2-test",
+      randomBytesFn: () => Buffer.alloc(32, 0x61),
+      run: async (...arguments_) => calls.push(arguments_),
+      waitForHealth: async () => {},
+    });
+
+    assert.equal(result.installed, true);
+    assert.equal(result.plan.engineMode, "remote-mtls");
+    assert.equal(result.plan.engineSocket, undefined);
+    assert.match(
+      calls[1][1].join(" "),
+      /docker-compose\.preview\.remote-engine\.yml/,
+    );
+
+    const environment = await readFile(result.plan.environmentFile, "utf8");
+    const readDotenvJson = (name) => {
+      const line = environment
+        .split("\n")
+        .find((entry) => entry.startsWith(`${name}=`));
+      assert.ok(line, `missing ${name}`);
+      return JSON.parse(line.slice(name.length + 1));
+    };
+    assert.equal(
+      readDotenvJson("DEV_ENGINE_HOST"),
+      "https://engine.example.com:2376",
+    );
+    assert.equal(readDotenvJson("ENGINE_CA_FILE"), tlsFiles.ca);
+    assert.equal(
+      readDotenvJson("DEV_ENGINE_KEY_FILE"),
+      "/run/harbor-desk/engine/client-key.pem",
+    );
+    assert.doesNotMatch(environment, /DOCKER_SOCKET_PATH/);
+
+    const marker = JSON.parse(await readFile(result.plan.markerFile, "utf8"));
+    assert.equal(marker.engineMode, "remote-mtls");
+    assert.equal(marker.engineEndpoint, "https://engine.example.com:2376");
+    assert.doesNotMatch(
+      JSON.stringify(marker),
+      /engine-client-key|private key/i,
+    );
+  } finally {
+    if (prepared) {
+      const clean = spawnSync(
+        process.execPath,
+        ["scripts/prepare-npm-server-payload.mjs", "--clean"],
+        { cwd: packageRoot, encoding: "utf8" },
+      );
+      assert.equal(clean.status, 0, clean.stderr);
+    }
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("requires complete remote Engine mTLS material and rejects mixed transports", () => {
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+      ]),
+    /requires --engine-ca-file, --engine-cert-file, and --engine-key-file/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "http://engine.example.com:2375",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+      ]),
+    /must use HTTPS/,
+  );
+  assert.throws(
+    () =>
+      parseServerInstallArgs([
+        "--directory",
+        "./server-install",
+        "--engine-endpoint",
+        "https://engine.example.com:2376",
+        "--engine-ca-file",
+        "./engine-ca.pem",
+        "--engine-cert-file",
+        "./engine-client-cert.pem",
+        "--engine-key-file",
+        "./engine-client-key.pem",
+        "--allow-local-engine-socket",
+      ]),
+    /cannot be combined with --engine-socket or --allow-local-engine-socket/,
   );
 });
 
@@ -282,42 +887,56 @@ test("keeps the desktop artifact version aligned with the release version", asyn
   }
 });
 
-test("packages and initializes the desktop-managed gateway before the renderer", async () => {
+test("packages the adaptive connection runtime before creating the renderer", async () => {
   const desktop = JSON.parse(await readFile(desktopManifestUrl, "utf8"));
   const gateway = JSON.parse(await readFile(gatewayManifestUrl, "utf8"));
   const main = await readFile(
     new URL("../apps/desktop/src/main/main.ts", import.meta.url),
     "utf8",
   );
-  const managedGateway = await readFile(
+  const localGateway = await readFile(
     new URL("../apps/desktop/src/main/managed-gateway.ts", import.meta.url),
+    "utf8",
+  );
+  const connectionManager = await readFile(
+    new URL("../apps/desktop/src/main/connection-manager.ts", import.meta.url),
+    "utf8",
+  );
+  const preload = await readFile(
+    new URL("../apps/desktop/src/preload.cts", import.meta.url),
     "utf8",
   );
 
   assert.equal(desktop.dependencies?.["@harbor/gateway"], "workspace:*");
   assert.equal(desktop.dependencies?.["@harbor/config"], "workspace:*");
   assert.equal(gateway.exports?.["./app"]?.import, "./dist/app.js");
-  assert.match(managedGateway, /from "@harbor\/gateway\/app"/);
-  assert.match(managedGateway, /hostname !== "127\.0\.0\.1"/);
-  assert.match(managedGateway, /randomBytes\(32\)\.toString\("base64url"\)/);
+  assert.match(localGateway, /from "@harbor\/gateway\/app"/);
+  assert.match(localGateway, /probeHarborGateway/);
+  assert.match(localGateway, /PORT: "0"/);
+  assert.match(localGateway, /randomBytes\(32\)\.toString\("base64url"\)/);
+  assert.match(connectionManager, /detectedMode === "gateway"/);
+  assert.match(connectionManager, /remote_engine_tls_required/);
+  assert.match(preload, /connection:/);
+  assert.match(preload, /connection:configure/);
+  assert.doesNotMatch(main, /initializeManagedGateway|startManagedGateway/);
 
-  const initializeIndex = main.indexOf("await initializeManagedGateway()");
+  const initializeIndex = main.indexOf("await initializeConnection()");
   const createWindowIndex = main.indexOf(
     "await createWindow()",
     initializeIndex,
   );
   assert.ok(
     initializeIndex >= 0,
-    "Electron must initialize the managed gateway",
+    "Electron must initialize the connection runtime",
   );
   assert.ok(
     createWindowIndex > initializeIndex,
-    "the managed gateway must initialize before Electron creates the renderer window",
+    "the connection runtime must initialize before Electron creates the renderer window",
   );
   assert.match(
     main,
     /app\.on\("will-quit",[\s\S]*runtime\s*\.close\(\)/,
-    "Electron must close the managed gateway after renderer windows begin shutting down",
+    "Electron must close the Local Gateway wrapper after renderer windows begin shutting down",
   );
 });
 
@@ -510,9 +1129,9 @@ test("generates versioned release notes from the changelog and npm state", async
   assert.doesNotMatch(unpublished, /checksums for every attached asset/);
   assert.match(
     unpublished,
-    /npx --yes --package \.\/harbor-desk-0\.3\.1\.tgz harbor-desk --version/,
+    /npm exec --yes --package \.\/harbor-desk-0\.3\.1\.tgz -- harbor-desk --version/,
   );
-  assert.doesNotMatch(unpublished, /npx --yes harbor-desk@0\.3\.1/);
+  assert.doesNotMatch(unpublished, /npm exec --yes harbor-desk@0\.3\.1/);
 
   const published = renderReleaseNotes({
     version: "0.3.1",
@@ -524,7 +1143,7 @@ test("generates versioned release notes from the changelog and npm state", async
   assert.match(published, /npm registry provides `v0\.3\.1`/);
   assert.match(published, /under the `preview` dist-tag/);
   assert.match(published, /default `latest` dist-tag is unchanged/);
-  assert.match(published, /npx --yes harbor-desk@0\.3\.1 --version/);
+  assert.match(published, /npm exec --yes harbor-desk@0\.3\.1 -- --version/);
 });
 
 test("ships a branded assisted Windows installer without changing upgrade identity", async () => {

@@ -1,8 +1,8 @@
 {
   "name": "harbor-desk",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "private": false,
-  "description": "A client-first Docker operations desktop app with an automatic policy gateway.",
+  "description": "A client-first Docker operations desktop app with adaptive Gateway and Docker Engine routing.",
   "license": "Apache-2.0",
   "keywords": [
     "docker",

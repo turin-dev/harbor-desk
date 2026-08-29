@@ -3,13 +3,14 @@
 ## Boundary
 
 The Electron application uses a client-first lifecycle but is not itself a
-Docker client. Before creating the renderer window, the main process starts a
-Fastify gateway on exact loopback (`127.0.0.1`) unless an explicit external
-gateway is configured or automatic startup is disabled. The renderer has no
-Docker CLI, Docker SDK, Engine socket, or direct Engine connection. It can
-submit endpoint and mTLS material during registration, but the gateway owns
-their storage and use and never returns them in host responses. The renderer
-calls the gateway using HTTP(S) and WebSocket only.
+Docker client. Before creating the renderer window, the main process probes the
+single configured target. A Harbor Desk Gateway is used directly. A raw Docker
+Engine target starts a Fastify Local Gateway wrapper on exact loopback
+(`127.0.0.1`) with an OS-assigned port. The renderer has no Docker CLI, Docker
+SDK, Engine socket, or direct Engine connection. It submits endpoint and mTLS
+material through the main-process connection manager; Engine material is kept
+in encrypted main-process storage and the in-memory wrapper configuration. The
+renderer calls the active Gateway using HTTP(S) and WebSocket only.
 
 The gateway is the policy boundary. It authenticates the user, checks the
 host-level grant, validates the request, writes audit metadata, and invokes a
@@ -18,12 +19,39 @@ connector for the selected host. The gateway must not expose a generic
 stores are a development slice; PostgreSQL/Redis-backed stores are required
 before a production deployment.
 
-The managed gateway receives a random token for each desktop launch. Protected
-requests from the renderer must carry that token in
+The Local Gateway wrapper receives a random token for each desktop launch.
+Protected requests from the renderer must carry that token in
 `x-harbor-desktop-token`, including packaged `file://` requests whose CORS
 origin is `null`. The main process keeps the token and exposes a narrow preload
 getter; diagnostics must never include it. This is a loopback channel guard,
 not a replacement for user authentication or process isolation.
+
+## Standalone server preview
+
+The optional `npm exec --yes harbor-desk -- install-server` flow copies a minimal gateway
+payload to a user-selected empty directory and runs it with either the
+server-local Engine overlay or the remote-Engine mTLS overlay. The default
+published port binds to exact loopback and uses development authentication.
+Running the command with no arguments in a TTY opens a setup questionnaire;
+automation must pass explicit options or use `-AI`/`--ai-context` to retrieve
+the stable setup contract without starting anything.
+
+`--public` is an explicit network-binding opt-in. It changes only the host-side
+published port to `0.0.0.0`; the gateway still listens on its internal container
+port. Public binding requires OIDC and a non-empty provider JSON file, and the
+installer rejects non-HTTPS provider endpoints. This is an authenticated
+preview path, not a production control plane: TLS or reverse-proxy termination,
+firewall policy, narrow allowed origins, durable persistence, secret management,
+and monitoring remain deployment responsibilities.
+
+The provider file is copied into an owner-readable environment file for the
+gateway and is not included in the AI context or formatted plan. The Docker
+socket remains an explicit server-side high-privilege mount; it is never handed
+to the Electron renderer or a browser client. An alternative remote Engine mode
+uses an HTTPS endpoint and three administrator-supplied mTLS files. Those files
+remain on the server host and are mounted read-only only inside the gateway
+container; this protects the gateway-to-Engine hop and is separate from
+client-to-gateway TLS termination.
 
 ## Update discovery
 
@@ -46,13 +74,21 @@ mTLS material. The endpoint is an administrator-controlled value; client
 certificates and private keys are encrypted by the configured secret store and
 are never serialized into the public `Host` response.
 
-Development can use a loopback HTTP endpoint or a Windows `npipe:` endpoint
-from the gateway process. The desktop-managed gateway may read
-`DEV_ENGINE_HOST`, but the renderer never receives or interprets that value.
-No automatic local-Engine fallback exists and Harbor Desk never starts Docker.
+Development can use a loopback HTTP endpoint, a Windows `npipe:` endpoint, or
+an `unix:` endpoint from the Local Gateway wrapper. The wrapper may read the
+configured Engine endpoint, but the renderer never receives or interprets raw
+Engine responses. Remote raw Engines require HTTPS plus CA/client
+certificate/private-key material. A Server Gateway target does not start a
+desktop Gateway process and Harbor Desk never starts Docker.
+
+The standalone server installer can select the remote Engine path with
+`--engine-endpoint`, `--engine-ca-file`, `--engine-cert-file`, and
+`--engine-key-file`. It then selects the remote-engine Compose overlay instead
+of mounting a local socket. The endpoint must use HTTPS and all three files must
+exist before installation proceeds.
 
 The connector probes `/version` and `/info`, records the negotiated API and
-capability matrix, and maps upstream errors to stable gateway error codes.
+capability matrix, and maps upstream errors to stable Gateway error codes.
 Unsupported capabilities are visible to the UI and block the relevant action.
 Container inspect, logs, stats, and one-shot exec output are exposed through
 typed gateway routes. Exec commands run inside the selected container only;
@@ -87,9 +123,11 @@ access token in their URL.
 
 ## Failure policy
 
-If the managed gateway cannot bind or initialize, the renderer shell still
-loads and reports an unavailable runtime in Troubleshoot. It must not replace
-the full interface with a blank or gateway-error-only page.
+If a configured connection cannot be identified or activated, the renderer
+shell still loads and reports an unavailable connection in Troubleshoot. A
+previously detected Server Gateway that is offline remains unavailable and is
+never reinterpreted as a raw Engine. The full interface must not be replaced
+with a blank or Gateway-error-only page.
 
 If a host cannot be reached, the UI may display the last known host status but
 must not execute mutations. A failed WebSocket resumes from its cursor when

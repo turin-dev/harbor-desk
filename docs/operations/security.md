@@ -1,20 +1,41 @@
 # Security boundary checklist
 
 - Production gateway binds behind TLS and uses `AUTH_MODE=oidc`.
-- The desktop-managed preview gateway binds only to exact `127.0.0.1`, starts
-  before the renderer, and stops when the desktop process quits.
-- Protected managed-gateway requests require a random per-launch
+- `npm exec --yes harbor-desk -- install-server` defaults to exact loopback (`127.0.0.1`) and
+  development authentication. A public bind (`--public` or
+  `--bind-host 0.0.0.0`) is rejected unless OIDC and a valid provider file are
+  supplied.
+- Public preview provider endpoints must use HTTPS, and the published gateway
+  port must still sit behind TLS or a reverse proxy plus a firewall. Public bind
+  is network reachability, not production readiness.
+- The standalone installer supports a remote Docker Engine over HTTPS mTLS with
+  `--engine-endpoint`, `--engine-ca-file`, `--engine-cert-file`, and
+  `--engine-key-file`. The three files are validated before installation and
+  mounted read-only only inside the gateway container; they are not copied into
+  the client payload or printed.
+- The installer can print a machine-readable `-AI` setup context. It contains
+  commands and trust-boundary information only; provider contents and
+  credentials are never included in that output or the formatted install plan.
+- A configured Server Gateway is used directly. A raw Engine target starts a
+  Local Gateway wrapper bound only to exact `127.0.0.1` on an OS-assigned port;
+  the wrapper stops when the desktop process quits.
+- Protected Local Gateway wrapper requests require a random per-launch
   `x-harbor-desktop-token`; the token is never persisted or included in
-  diagnostics. Allowing `Origin: null` is valid only with this token guard.
-- Automatic startup is never used for HTTPS, LAN, or remote gateway URLs.
+  diagnostics. The wrapper's `Origin: null` allowance is valid only with this
+  token guard. Loopback server previews may allow the packaged origin as a
+  development convenience, but the installer rejects `null` for public binds
+  and requires an explicit HTTPS client origin there.
+- A previously detected Server Gateway is never reinterpreted as a raw Engine
+  just because it is temporarily offline. Remote raw Engine HTTP is rejected;
+  remote raw Engine HTTPS requires all three mTLS values.
 - Plain Docker Engine TCP access is not a supported production transport.
 - Production host registration requires HTTPS, CA/client certificate/client
   key material, and a configured `ENGINE_ENDPOINT_ALLOWLIST`.
 - Production startup requires an injected Vault/KMS-backed secret store; the
   in-memory AES-GCM fallback is restricted to development and tests.
 - The browser/renderer cannot access Node.js, filesystem secrets, or Docker.
-- The managed token is a loopback channel guard, not user authentication or
-  process isolation; production still requires OIDC and the external gateway
+- The Local Gateway token is a loopback channel guard, not user authentication
+  or process isolation; production still requires OIDC and the Server Gateway
   controls listed here.
 - Host endpoint registration rejects embedded credentials.
 - Host-level RBAC is enforced server-side for every resource and action route.
@@ -28,6 +49,8 @@
   mutation and terminal-session metadata is recorded without terminal output.
 - Tokens, mTLS private keys, Compose secrets, and provider credentials are
   redacted from logs.
+- The standalone installer writes its generated environment file with owner-only
+  permissions on platforms that support POSIX modes; it never prints the file.
 - File uploads are validated before entering a worker or remote Engine request.
 - External extension and AI actions are policy-gated; neither receives an
   unrestricted gateway or host shell.

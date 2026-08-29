@@ -16,6 +16,7 @@ import {
   Logout,
   Menu as MenuIcon,
   Minimize,
+  Refresh,
   Settings,
   Shield,
   Storage,
@@ -31,6 +32,7 @@ import {
   Avatar,
   Box,
   Button,
+  CircularProgress,
   Divider,
   Drawer,
   IconButton,
@@ -47,10 +49,11 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import type { Host, HostStatus } from "@harbor/contracts";
+import type { DesktopConnectionStatus } from "../api/client.js";
 import { useRemoteEventStream } from "../state/events.js";
 import {
   useCurrentUser,
-  useDesktopGatewayRuntime,
+  useConnectionStatus,
   useHosts,
 } from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
@@ -205,32 +208,38 @@ function Sidebar({
 
 function ClientStatusBar({
   host,
-  gatewayUnavailable,
-  gatewayMode,
+  connectionUnavailable,
+  connectionMode,
   terminalOpen,
   onToggleTerminal,
+  onReconnect,
+  reconnecting,
   updateStatus,
   onCheckUpdates,
   onOpenUpdate,
 }: {
   host?: Host;
-  gatewayUnavailable: boolean;
-  gatewayMode?: "managed" | "external" | "disabled" | "unavailable";
+  connectionUnavailable: boolean;
+  connectionMode?: DesktopConnectionStatus["mode"];
   terminalOpen: boolean;
   onToggleTerminal: () => void;
+  onReconnect?: () => void;
+  reconnecting: boolean;
   updateStatus: DesktopUpdateCheckStatus;
   onCheckUpdates: () => void;
   onOpenUpdate: () => void;
 }) {
   const online = host?.status === "online";
   const modeLabel =
-    gatewayMode === "external"
-      ? "External gateway"
-      : gatewayMode === "disabled"
-        ? "Gateway auto-start off"
-        : gatewayUnavailable
-          ? "Gateway unavailable"
-          : "Automatic gateway";
+    connectionMode === "gateway"
+      ? "Server Gateway"
+      : connectionMode === "engine"
+        ? "Local Gateway wrapper"
+        : connectionMode === "detecting"
+          ? "Detecting connection"
+          : connectionUnavailable || connectionMode === "unavailable"
+            ? "Connection unavailable"
+            : "Not configured";
   const updateLabel =
     updateStatus.state === "checking"
       ? "Checking for updates…"
@@ -260,7 +269,7 @@ function ClientStatusBar({
       <CloudQueue
         sx={{
           fontSize: 15,
-          color: gatewayUnavailable
+          color: connectionUnavailable
             ? "error.main"
             : online
               ? "#16bf9d"
@@ -268,11 +277,15 @@ function ClientStatusBar({
         }}
       />
       <Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>
-        {gatewayUnavailable
-          ? "Gateway unavailable"
+        {connectionUnavailable
+          ? "Connection unavailable"
           : host
             ? `${host.displayName} · ${statusLabel(host.status)}`
-            : "Gateway ready · No Engine connected"}
+            : connectionMode === "engine"
+              ? "Local Gateway ready · No Engine host"
+              : connectionMode === "gateway"
+                ? "Server Gateway ready · No host selected"
+                : "Configure a connection"}
       </Typography>
       <Divider orientation="vertical" flexItem sx={{ my: 0.75 }} />
       <Typography
@@ -282,6 +295,29 @@ function ClientStatusBar({
         Client-first · {modeLabel}
       </Typography>
       <Box sx={{ flex: 1 }} />
+      {onReconnect && (
+        <Button
+          color="inherit"
+          onClick={onReconnect}
+          disabled={reconnecting}
+          startIcon={
+            reconnecting ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : (
+              <Refresh sx={{ fontSize: 15 }} />
+            )
+          }
+          sx={{
+            minHeight: 30,
+            px: 1,
+            color: "inherit",
+            fontSize: 12,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {reconnecting ? "Retrying…" : "Retry connection"}
+        </Button>
+      )}
       <Button
         color="inherit"
         onClick={onToggleTerminal}
@@ -328,13 +364,14 @@ export function AppShell() {
   const compact = useMediaQuery("(max-width: 1100px)");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountAnchor, setAccountAnchor] = useState<HTMLElement | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const {
     data: hosts = [],
     isLoading: hostsLoading,
     isError: hostsError,
     isFetched: hostsFetched,
   } = useHosts();
-  const { data: gatewayRuntime } = useDesktopGatewayRuntime();
+  const { data: connection } = useConnectionStatus();
   const { data: user } = useCurrentUser();
   const showHostsLoading = shouldShowInitialGatewayLoading({
     isLoading: hostsLoading,
@@ -417,6 +454,35 @@ export function AppShell() {
       .catch(() =>
         showToast("The verified release page was unavailable.", "error"),
       );
+  };
+
+  const canReconnect = Boolean(
+    window.harbor?.connection?.reconnect &&
+    connection &&
+    connection.mode === "unavailable",
+  );
+  const retryConnection = async () => {
+    const reconnect = window.harbor?.connection?.reconnect;
+    if (!reconnect || reconnecting) return;
+    setReconnecting(true);
+    try {
+      const next = await reconnect();
+      showToast(
+        next.mode === "unavailable"
+          ? next.message
+          : "The saved connection is available again.",
+        next.mode === "unavailable" ? "error" : "success",
+      );
+    } catch (caught) {
+      showToast(
+        caught instanceof Error
+          ? caught.message
+          : "The saved connection could not be retried.",
+        "error",
+      );
+    } finally {
+      setReconnecting(false);
+    }
   };
 
   return (
@@ -706,11 +772,14 @@ export function AppShell() {
                 sx={{ fontSize: 13 }}
               >
                 {hostsError
-                  ? gatewayRuntime?.state === "external"
-                    ? "The configured external gateway is unavailable. Open Troubleshoot for connection details."
-                    : gatewayRuntime?.state === "disabled"
-                      ? "The gateway is unavailable while automatic startup is disabled. Open Troubleshoot for details."
-                      : "The automatic gateway is unavailable. Open Troubleshoot for startup details."
+                  ? connection?.mode === "unconfigured"
+                    ? "Open Connections and click Connect Docker Engine to configure a Gateway or Docker Engine target."
+                    : connection?.mode === "engine"
+                      ? "The local Gateway wrapper is unavailable. Open Troubleshoot for connection details."
+                      : connection?.mode === "gateway"
+                        ? "The configured server Gateway is unavailable. Open Troubleshoot for connection details."
+                        : (connection?.message ??
+                          "The configured connection is unavailable. Open Troubleshoot for details.")
                   : selectedHost
                     ? `${selectedHost.displayName}: ${statusLabel(selectedHost.status)}. Cached data is read-only.`
                     : "No remote host is selected."}
@@ -720,9 +789,13 @@ export function AppShell() {
           {showHostsLoading && !hosts.length ? (
             <Box sx={{ px: 4, py: 2.5 }}>
               <Typography color="text.secondary">
-                {gatewayRuntime?.state === "external"
-                  ? "Connecting to the configured gateway…"
-                  : "Starting the Harbor Desk gateway…"}
+                {connection?.mode === "engine"
+                  ? "Starting the local Gateway wrapper…"
+                  : connection?.mode === "gateway"
+                    ? "Connecting to the configured Gateway…"
+                    : connection?.mode === "detecting"
+                      ? "Detecting the configured connection…"
+                      : "Configure a Gateway or Docker Engine connection…"}
               </Typography>
             </Box>
           ) : (
@@ -735,10 +808,16 @@ export function AppShell() {
 
       <ClientStatusBar
         host={selectedHost}
-        gatewayUnavailable={hostsError}
-        gatewayMode={gatewayRuntime?.state}
+        connectionUnavailable={
+          hostsError ||
+          connection?.mode === "unavailable" ||
+          connection?.mode === "unconfigured"
+        }
+        connectionMode={connection?.mode}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        onReconnect={canReconnect ? () => void retryConnection() : undefined}
+        reconnecting={reconnecting}
         updateStatus={updateStatus}
         onCheckUpdates={checkForUpdates}
         onOpenUpdate={openAvailableUpdate}
