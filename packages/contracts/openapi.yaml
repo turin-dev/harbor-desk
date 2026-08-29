@@ -160,6 +160,16 @@ paths:
       responses:
         "202":
           description: Container lifecycle operation (operator or admin role required)
+  /api/v1/hosts/{hostId}/containers/{containerId}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+        - $ref: "#/components/parameters/idempotencyKey"
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "202":
+          description: Container deletion operation (operator or admin role required)
   /api/v1/hosts/{hostId}/prune/{kind}:
     post:
       parameters:

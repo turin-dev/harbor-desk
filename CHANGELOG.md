@@ -63,6 +63,7 @@ still change between minor versions.
   header button, confirm dialog, and success toast over CDP before
   asserting the Engine reports the container gone. The Engine
   endpoint is overrideable via `SMOKE_ENDPOINT`.
+- An OpenAPI contract drift check (`pnpm run check:openapi`, also wired into `pnpm run check` through the contracts package) parses the gateway source for every route registration, parses the canonical spec with a strict YAML document (duplicate keys fail), and fails when a route has no matching method+path in the spec. It runs in the CI quality path via the recursive check script.
 
 ### Fixed
 

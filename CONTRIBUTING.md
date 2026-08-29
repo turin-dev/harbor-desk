@@ -42,6 +42,8 @@ pnpm test
 pnpm run format:check
 ```
 
+`pnpm run check` also runs the OpenAPI contract drift check (`scripts/check-openapi-routes.mjs`): every gateway route registration must have a matching method and path in `packages/contracts/openapi.yaml`, and the spec itself must parse without duplicate keys. Run it directly with `pnpm run check:openapi`.
+
 When a real Docker Engine is reachable (for example Docker Desktop's named
 pipe, or `SMOKE_ENDPOINT` for another socket or host), the optional live
 smokes exercise the built gateway and desktop against it. They only create
