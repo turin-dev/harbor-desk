@@ -184,7 +184,11 @@ test("parses an explicitly public OIDC server install plan", () => {
     options.oidcProvidersFile,
     resolve(process.cwd(), "oidc-providers.json"),
   );
-  assert.ok(options.allowedOrigins.includes("https://client.example.com"));
+  assert.ok(
+    options.allowedOrigins.includes(
+      new URL("https://client.example.com").origin,
+    ),
+  );
   assert.match(formatServerInstallPlan(plan), /public network/);
   assert.match(
     formatServerInstallPlan(plan),
