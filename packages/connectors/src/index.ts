@@ -23,6 +23,7 @@ import type {
   VolumeCreateInput,
   VolumeSummary,
 } from "@harbor/contracts";
+import { HttpError } from "./http-error.js";
 
 export interface EngineTlsMaterial {
   ca?: string;
@@ -136,6 +137,8 @@ export class EngineRequestError extends Error {
     this.responseBody = responseBody;
   }
 }
+
+export { HttpError };
 
 function parseApiVersion(value: string | undefined): number {
   const parsed = Number.parseFloat(value?.replace(/^v/i, "") ?? "0");
@@ -330,19 +333,42 @@ export class DockerEngineClient {
   public async pullImage(
     input: ImagePullInput,
     onProgress?: (frame: PullProgressFrame) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (signal?.aborted) throw this.abortError();
     const response = await this.requestStream(
       `/images/create?fromImage=${encodeURIComponent(input.image)}`,
-      { method: "POST" },
+      { method: "POST", ...(signal ? { signal } : {}) },
     );
     let buffer = "";
-    for await (const chunk of response) {
-      buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) consumePullFrame(line, onProgress);
+    const consume = async () => {
+      for await (const chunk of response) {
+        buffer += Buffer.isBuffer(chunk)
+          ? chunk.toString("utf8")
+          : String(chunk);
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) consumePullFrame(line, onProgress);
+      }
+      consumePullFrame(buffer, onProgress);
+    };
+    if (!signal) {
+      await consume();
+      return;
     }
-    consumePullFrame(buffer, onProgress);
+    let rejectRace: (error: Error) => void = () => undefined;
+    const onAbort = () => rejectRace(this.abortError());
+    try {
+      await Promise.race([
+        consume(),
+        new Promise<never>((_resolve, reject) => {
+          rejectRace = reject;
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   public async pruneContainers(all: boolean): Promise<PruneSummary> {
@@ -641,6 +667,7 @@ export class DockerEngineClient {
       method?: string;
       body?: unknown;
       headers?: Record<string, string>;
+      signal?: AbortSignal;
     } = {},
   ): Promise<IncomingMessage> {
     const response = await this.requestRaw(path, { ...options, stream: true });
@@ -684,8 +711,10 @@ export class DockerEngineClient {
       body?: unknown;
       headers?: Record<string, string>;
       stream?: boolean;
+      signal?: AbortSignal;
     } = {},
   ): Promise<IncomingMessage> {
+    if (options.signal?.aborted) throw this.abortError();
     const pathWithVersion =
       this.apiVersion &&
       !path.startsWith("/version") &&
@@ -715,6 +744,7 @@ export class DockerEngineClient {
         ...options.headers,
       },
       timeout: options.stream ? 0 : this.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
     };
 
     if (target?.protocol === "https:") {
@@ -745,6 +775,10 @@ export class DockerEngineClient {
         );
       });
     });
+  }
+
+  private abortError(): HttpError {
+    return new HttpError("operation_cancelled", "The operation was cancelled.");
   }
 
   private getSocketPath(): string | undefined {

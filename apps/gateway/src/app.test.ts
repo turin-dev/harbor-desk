@@ -277,6 +277,7 @@ test("surfaces pull progress through operation polling for a live Engine", async
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
+  records.client.requestStream = async () => (async function* () {})();
   await harbor.registry.test(host.id);
   records.client.pullImage = async (
     _input: unknown,
@@ -305,6 +306,121 @@ test("surfaces pull progress through operation polling for a live Engine", async
   });
   assert.equal(polled.statusCode, 200);
   assert.equal(polled.json().data.status, "succeeded");
+});
+
+test("cancels a running pull, aborts the Engine request, and keeps the host online", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Pull cancel engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const records = (
+    harbor.registry as unknown as {
+      records: Map<string, { client: Record<string, unknown> }>;
+    }
+  ).records.get(host.id);
+  assert.ok(records, "expected the seeded host record");
+  records.client.probe = async () => ({
+    summary: {
+      id: "probe-2",
+      version: "27.0.0",
+      apiVersion: "1.47",
+      minApiVersion: "1.12",
+      operatingSystem: "linux",
+      architecture: "amd64",
+      containers: 0,
+      containersRunning: 0,
+      containersStopped: 0,
+      images: 0,
+      memoryTotalBytes: 0,
+    },
+    capabilities: {
+      containers: true,
+      images: true,
+      volumes: true,
+      networks: true,
+      logs: true,
+      stats: true,
+      exec: true,
+      compose: false,
+      buildkit: true,
+      kubernetes: false,
+      extensions: false,
+      imageScan: false,
+      volumeFileBrowser: false,
+    },
+  });
+  records.client.createEventStream = async () => (async function* () {})();
+  records.client.requestStream = async () => (async function* () {})();
+  await harbor.registry.test(host.id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await harbor.registry.test(host.id);
+  records.client.pullImage = async (
+    _input: unknown,
+    _onProgress?: (frame: { status: string; id?: string }) => void,
+    signal?: AbortSignal,
+  ) => {
+    await new Promise<void>((_resolve, reject) => {
+      signal?.addEventListener(
+        "abort",
+        () =>
+          reject(
+            Object.assign(new Error("aborted"), {
+              code: "operation_cancelled",
+            }),
+          ),
+        { once: true },
+      );
+    });
+  };
+  const pull = harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/images/pull",
+    headers: { "operation-id": "pull-cancel-op-1" },
+    payload: { image: "nginx:1.27" },
+  });
+  let running = false;
+  for (let i = 0; i < 100 && !running; i += 1) {
+    const polled = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/operations/pull-cancel-op-1",
+    });
+    if (polled.statusCode === 200 && polled.json().data.status === "running")
+      running = true;
+    else await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(running, "expected the pull operation to reach running");
+  const cancel = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/operations/pull-cancel-op-1/cancel",
+  });
+  assert.equal(cancel.statusCode, 200);
+  assert.equal(cancel.json().data.status, "cancelled");
+  const pullResponse = await pull;
+  assert.equal(pullResponse.statusCode, 202);
+  assert.equal(pullResponse.json().data.status, "cancelled");
+  const hosts = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts",
+  });
+  const cancelledHost = hosts
+    .json()
+    .data.find((item: { id: string }) => item.id === host.id);
+  assert.equal(cancelledHost.status, "online");
+  const audit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/audit",
+  });
+  assert.ok(
+    audit
+      .json()
+      .data.some(
+        (entry: { action: string; result: string }) =>
+          entry.action === "operation.cancel" && entry.result === "success",
+      ),
+    "expected a successful operation.cancel audit entry",
+  );
 });
 
 test("validates container creation input and audit limits", async (t) => {

@@ -333,6 +333,11 @@ export const gateway = {
     ),
   getOperation: (operationId: string) =>
     request<Operation>(`/api/v1/operations/${encodeURIComponent(operationId)}`),
+  cancelOperation: (operationId: string) =>
+    request<Operation>(
+      `/api/v1/operations/${encodeURIComponent(operationId)}/cancel`,
+      { method: "POST" },
+    ),
   getAudit: (limit = 200) =>
     request<AuditEvent[]>(`/api/v1/audit?limit=${limit}`),
   pruneResources: (hostId: string, kind: PruneResourceKind, all = false) =>

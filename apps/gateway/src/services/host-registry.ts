@@ -28,6 +28,7 @@ import {
 } from "@harbor/connectors";
 import { HttpError } from "../errors.js";
 import { EventHub } from "./events.js";
+import { isOperationCancelledError } from "./operations.js";
 import {
   MemoryEncryptedSecretStore,
   type SecretStore,
@@ -283,13 +284,15 @@ export class HostRegistry {
     hostId: string,
     input: ImagePullInput,
     onProgress?: (frame: PullProgressFrame) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.pullImage(input, onProgress);
+      await record.client.pullImage(input, onProgress, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }

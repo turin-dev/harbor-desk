@@ -16,6 +16,10 @@ still change between minor versions.
 - Live image pull progress: pulls accept a client-generated operation id
   and the pull screen shows determinate progress with Engine status
   messages while polling the operation record every 2 seconds.
+- Cancellable image pulls: while a pull is queued or running, the desktop
+  Cancel button posts to the operation cancel endpoint and the gateway
+  aborts the Engine request server-side, reporting the operation as
+  `cancelled` without marking the remote host offline.
 - Prune operations for containers, images, volumes, and networks via
   `POST /api/v1/hosts/{hostId}/prune/{kind}` (operator role, audited,
   returns a 202 operation record), with Prune dialogs on the Images,

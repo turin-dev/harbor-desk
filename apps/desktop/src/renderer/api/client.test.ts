@@ -83,3 +83,34 @@ test("normalizes transport failures as retryable Gateway errors", async () => {
     restoreWindow();
   }
 });
+
+test("posts cancel requests to the operation cancel endpoint", async () => {
+  const restoreWindow = installWindow();
+  const previousFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.ok(String(input).endsWith("/api/v1/operations/op-123/cancel"));
+      assert.equal(init?.method, "POST");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            id: "op-123",
+            kind: "image.pull",
+            status: "cancelled",
+            startedAt: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      } as Response;
+    };
+
+    const operation = await gateway.cancelOperation("op-123");
+    assert.equal(operation.id, "op-123");
+    assert.equal(operation.status, "cancelled");
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreWindow();
+  }
+});

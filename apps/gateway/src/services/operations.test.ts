@@ -67,3 +67,56 @@ test("publishes host-scoped lifecycle events for operation progress", async () =
   );
   assert.equal(events.since().at(-1)?.resourceId, operation.id);
 });
+
+test("cancels a running operation through its abort signal", async () => {
+  const events = new EventHub();
+  const store = new OperationStore(events);
+  let started = false;
+  const running = store.run(
+    {
+      kind: "image.pull",
+      hostId: "host-1",
+      operationId: "cancel-run-1",
+      requestId: "req-5",
+    },
+    (signal) =>
+      new Promise<void>((_resolve, reject) => {
+        started = true;
+        signal?.addEventListener(
+          "abort",
+          () =>
+            reject(
+              Object.assign(new Error("aborted"), {
+                code: "operation_cancelled",
+              }),
+            ),
+          { once: true },
+        );
+      }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(started, "expected the task to be running before cancel");
+  const cancelled = await store.cancel("cancel-run-1");
+  const settled = await running;
+  assert.equal(cancelled.id, "cancel-run-1");
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(settled.id, "cancel-run-1");
+  assert.equal(settled.status, "cancelled");
+  assert.equal(settled.error, undefined);
+  assert.equal(settled.message, "Operation cancelled.");
+  assert.deepEqual(
+    events.since().map((event) => event.type),
+    ["operation.queued", "operation.running", "operation.cancelled"],
+  );
+});
+
+test("returns terminal operations unchanged when cancelling", async () => {
+  const store = new OperationStore();
+  const operation = await store.run(
+    { kind: "container.start", hostId: "host-1", requestId: "req-6" },
+    async () => undefined,
+  );
+  const unchanged = await store.cancel(operation.id);
+  assert.equal(unchanged.id, operation.id);
+  assert.equal(unchanged.status, "succeeded");
+});

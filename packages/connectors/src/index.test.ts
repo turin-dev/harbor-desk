@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DockerEngineClient } from "./index.js";
+import { DockerEngineClient, HttpError } from "./index.js";
 test("accepts server-side HTTPS Engine endpoints and rejects unsupported protocols", () => {
   assert.doesNotThrow(
     () => new DockerEngineClient({ endpoint: "https://engine.internal:2376" }),
@@ -37,7 +37,13 @@ test("consumes pull progress frames and propagates engine pull errors", async ()
     yield '{"status":"Downloading","progress":"50%"}\n';
     yield '{"error":"boom"}\n';
   };
-  (client as unknown as { requestStream: unknown }).requestStream = stream;
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    _path: string,
+    options?: { method?: string },
+  ) => {
+    assert.equal(options?.method, "POST");
+    return stream();
+  };
   const frames: Array<{ status?: string; progress?: string }> = [];
   await assert.rejects(
     client.pullImage({ image: "nginx:1.27" }, (frame) => frames.push(frame)),
@@ -46,6 +52,46 @@ test("consumes pull progress frames and propagates engine pull errors", async ()
   assert.deepEqual(
     frames.map((frame) => frame.status),
     ["Waiting", "Downloading"],
+  );
+});
+
+test("aborts a running image pull with a deterministic operation_cancelled error", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  const openStream = async function* () {
+    yield '{"status":"Waiting","id":"nginx"}\n';
+    await new Promise<void>(() => undefined);
+  };
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    _path: string,
+    options?: { signal?: AbortSignal },
+  ) => {
+    assert.equal(options?.signal, controller.signal);
+    return Promise.resolve(openStream());
+  };
+  const pending = client.pullImage(
+    { image: "nginx:1.27" },
+    undefined,
+    controller.signal,
+  );
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(
+    pending,
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.code === "operation_cancelled" &&
+      /cancelled/i.test(error.message),
+  );
+});
+
+test("fails fast when a pull signal is already aborted", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    client.pullImage({ image: "nginx:1.27" }, undefined, controller.signal),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "operation_cancelled",
   );
 });
 test("maps prune endpoints to a normalized prune summary", async () => {

@@ -181,11 +181,20 @@ export function usePullImage(hostId: string | undefined) {
   });
 }
 
+export function useCancelOperation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (operationId: string) => gateway.cancelOperation(operationId),
+    onSuccess: (_operation, operationId) =>
+      queryClient.invalidateQueries({ queryKey: ["operation", operationId] }),
+  });
+}
+
 export function useOperation(operationId: string | undefined) {
   const isFinal = (status?: string) =>
     status === "succeeded" || status === "failed" || status === "cancelled";
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ["operation", operationId],
     queryFn: () => gateway.getOperation(operationId!),
     enabled: Boolean(operationId),
@@ -193,6 +202,8 @@ export function useOperation(operationId: string | undefined) {
       isFinal(query.state.data?.status) ? false : 2000,
     refetchOnWindowFocus: false,
   });
+
+  return query.data;
 }
 
 export function usePruneResources(hostId: string | undefined) {

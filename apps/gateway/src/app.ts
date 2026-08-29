@@ -801,26 +801,31 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        async () => {
+        async (signal) => {
           let lastStatus = "";
-          await registry.pullImage(hostId, input, (frame) => {
-            if (!frame.status || frame.status === lastStatus) return;
-            lastStatus = frame.status;
-            const label = frame.id
-              ? `${frame.status} ${frame.id}`
-              : frame.status;
-            operations.setProgress(
-              operationId ?? "",
-              frame.status === "Pull complete"
-                ? 95
-                : frame.status === "Download complete"
-                  ? 90
-                  : frame.status === "Waiting"
-                    ? 15
-                    : 60,
-              label,
-            );
-          });
+          await registry.pullImage(
+            hostId,
+            input,
+            (frame) => {
+              if (!frame.status || frame.status === lastStatus) return;
+              lastStatus = frame.status;
+              const label = frame.id
+                ? `${frame.status} ${frame.id}`
+                : frame.status;
+              operations.setProgress(
+                operationId ?? "",
+                frame.status === "Pull complete"
+                  ? 95
+                  : frame.status === "Download complete"
+                    ? 90
+                    : frame.status === "Waiting"
+                      ? 15
+                      : 60,
+                label,
+              );
+            },
+            signal,
+          );
         },
       );
       audit.record({
@@ -1322,7 +1327,7 @@ export async function buildApp(
         resourceId: operationId,
         requestId: request.id,
       });
-      const operation = operations.cancel(operationId);
+      const operation = await operations.cancel(operationId);
       audit.record({
         actorId: user.id,
         action: "operation.cancel",

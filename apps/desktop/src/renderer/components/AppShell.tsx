@@ -10,6 +10,7 @@ import {
   DeveloperBoard,
   Extension,
   HelpOutline,
+  History,
   Hub,
   Image,
   Lan,

@@ -53,6 +53,7 @@ import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import {
   useCreateNetwork,
+  useCancelOperation,
   useCreateVolume,
   useCurrentUser,
   useDeleteImage,
@@ -155,6 +156,7 @@ function ImagesView({ hostId }: { hostId?: string }) {
     hostOnline && (host?.capabilities.images ?? false),
   );
   const pull = usePullImage(hostId);
+  const cancel = useCancelOperation();
   const remove = useDeleteImage(hostId);
   const prune = usePruneResources(hostId);
   const { data: user } = useCurrentUser();
@@ -355,6 +357,12 @@ function ImagesView({ hostId }: { hostId?: string }) {
         <DialogContent>
           <Stack spacing={1.4} sx={{ pt: 1 }}>
             {pullError && <Alert severity="error">{pullError}</Alert>}
+            {pullOperation?.status === "cancelled" && (
+              <Alert severity="info">
+                Image pull cancelled. The download was aborted on the remote
+                host.
+              </Alert>
+            )}
             <TextField
               label="Image reference"
               placeholder="nginx:alpine"
@@ -385,8 +393,26 @@ function ImagesView({ hostId }: { hostId?: string }) {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPullOpen(false)} disabled={pullActive}>
-            Cancel
+          <Button
+            onClick={() => {
+              if (pullActive && pullOperationId) {
+                cancel.mutate(pullOperationId, {
+                  onSuccess: () => showToast("Image pull cancelled.", "info"),
+                  onError: (error) =>
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "The pull could not be cancelled.",
+                      "error",
+                    ),
+                });
+                return;
+              }
+              setPullOpen(false);
+            }}
+            disabled={cancel.isPending}
+          >
+            {pullActive ? "Cancel pull" : "Cancel"}
           </Button>
           <Button
             variant="contained"
@@ -406,11 +432,20 @@ function ImagesView({ hostId }: { hostId?: string }) {
                     setPullOpen(false);
                     setPullReference("");
                     setPullOperationId(undefined);
+                    if (operation.status === "succeeded") {
+                      showToast(
+                        `${image} pulled to the remote host.`,
+                        "success",
+                      );
+                      return;
+                    }
+                    if (operation.status === "cancelled") {
+                      showToast("Image pull cancelled.", "info");
+                      return;
+                    }
                     showToast(
-                      operation.status === "succeeded"
-                        ? `${image} pulled to the remote host.`
-                        : (operation.message ?? "Image pull failed."),
-                      operation.status === "succeeded" ? "success" : "error",
+                      operation.message ?? "Image pull failed.",
+                      "error",
                     );
                   },
                   onError: (error) =>

@@ -66,7 +66,7 @@ actual Electron window, not merely in a browser tab:
 | -------------- | --------------------------------------------------------------------------------- | -------------------------------- |
 | Dashboard      | Live host summary                                                                 | Docker Engine + event hub        |
 | Containers     | Live list, filter, run/create+start, lifecycle, inspect, logs, stats, exec output | Docker Engine                    |
-| Images         | Live list, filter, inspect, remove                                                | Docker Engine + Registry         |
+| Images         | Live list, filter, pull with live progress and cancel, inspect, remove            | Docker Engine + Registry         |
 | Volumes        | Live list, filter, create, inspect, admin delete                                  | Docker Engine + object storage   |
 | Networks       | Live list, filter, create, inspect, delete                                        | Docker Engine                    |
 | Builds         | Shell and state model                                                             | BuildKit worker                  |
