@@ -4,6 +4,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -15,6 +16,7 @@ import {
   Menu,
   MenuItem,
   Paper,
+  Select,
   Stack,
   Table,
   TableBody,
@@ -36,14 +38,17 @@ import {
   CloudOff,
   CloudQueue,
   DeleteOutline,
+  ExpandLess,
+  ExpandMore,
   MoreHoriz,
+  Remove,
   PlayArrow,
   Refresh,
   Search,
   Stop,
   Terminal,
 } from "@mui/icons-material";
-import type { ContainerSummary } from "@harbor/contracts";
+import type { ContainerCreateInput, ContainerSummary } from "@harbor/contracts";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
@@ -94,7 +99,45 @@ export function ContainersScreen() {
   const [image, setImage] = useState("");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [portRows, setPortRows] = useState<
+    Array<{ containerPort: string; hostPort: string; protocol: "tcp" | "udp" }>
+  >([]);
+  const [envRows, setEnvRows] = useState<
+    Array<{ name: string; value: string }>
+  >([]);
+  const [labelRows, setLabelRows] = useState<
+    Array<{ key: string; value: string }>
+  >([]);
+  const [restartPolicy, setRestartPolicy] = useState("");
   const [formError, setFormError] = useState<string>();
+  const updatePortRow = (
+    index: number,
+    field: "containerPort" | "hostPort",
+    value: string,
+  ) => {
+    setPortRows((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  };
+  const updateEnvRow = (
+    index: number,
+    field: "name" | "value",
+    value: string,
+  ) => {
+    setEnvRows((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  };
+  const updateLabelRow = (
+    index: number,
+    field: "key" | "value",
+    value: string,
+  ) => {
+    setLabelRows((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  };
   const [deleteTarget, setDeleteTarget] = useState<ContainerSummary>();
   const [forceDelete, setForceDelete] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -146,12 +189,72 @@ export function ContainersScreen() {
       setFormError("An image reference is required.");
       return;
     }
+    const ports = portRows
+      .filter((row) => row.containerPort.trim().length > 0)
+      .map((row) => ({
+        containerPort: Number(row.containerPort),
+        protocol: row.protocol,
+        ...(row.hostPort.trim() ? { hostPort: Number(row.hostPort) } : {}),
+      }));
+    for (const port of ports) {
+      if (
+        !Number.isInteger(port.containerPort) ||
+        port.containerPort < 1 ||
+        port.containerPort > 65535
+      ) {
+        setFormError("Container ports must be integers from 1 to 65535.");
+        return;
+      }
+      if (
+        port.hostPort !== undefined &&
+        (!Number.isInteger(port.hostPort) ||
+          port.hostPort < 1 ||
+          port.hostPort > 65535)
+      ) {
+        setFormError("Host ports must be integers from 1 to 65535.");
+        return;
+      }
+    }
+    const seenPorts = new Set<string>();
+    for (const port of ports) {
+      const key = `${port.containerPort}/${port.protocol}`;
+      if (seenPorts.has(key)) {
+        setFormError(`Container port ${key} is mapped more than once.`);
+        return;
+      }
+      seenPorts.add(key);
+    }
+    const env = envRows
+      .map((row) => ({ name: row.name.trim(), value: row.value }))
+      .filter((row) => row.name.length > 0);
+    for (const row of env) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(row.name)) {
+        setFormError(
+          `Environment name ${row.name} is not a valid variable name.`,
+        );
+        return;
+      }
+    }
+    const labels: Record<string, string> = {};
+    for (const row of labelRows) {
+      const key = row.key.trim();
+      if (key) labels[key] = row.value;
+    }
     setFormError(undefined);
     create.mutate(
       {
         image: trimmedImage,
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(command.trim() ? { command: command.trim() } : {}),
+        ...(ports.length > 0 ? { ports } : {}),
+        ...(env.length > 0 ? { env } : {}),
+        ...(restartPolicy
+          ? {
+              restartPolicy:
+                restartPolicy as ContainerCreateInput["restartPolicy"],
+            }
+          : {}),
+        ...(Object.keys(labels).length > 0 ? { labels } : {}),
       },
       {
         onSuccess: (operation) => {
@@ -159,6 +262,11 @@ export function ContainersScreen() {
           setImage("");
           setName("");
           setCommand("");
+          setAdvancedOpen(false);
+          setPortRows([]);
+          setEnvRows([]);
+          setLabelRows([]);
+          setRestartPolicy("");
           reportOperation(
             operation,
             "Container created and started on the remote host.",
@@ -405,6 +513,185 @@ export function ContainersScreen() {
               onChange={(event) => setCommand(event.target.value)}
               helperText="Command is sent to the selected remote host; it is never executed by the desktop client."
             />
+            <Typography
+              variant="subtitle2"
+              sx={{
+                mt: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                cursor: "pointer",
+              }}
+              onClick={() => setAdvancedOpen((open) => !open)}
+            >
+              {advancedOpen ? <ExpandLess /> : <ExpandMore />}
+              Advanced options
+            </Typography>
+            {advancedOpen && (
+              <Stack spacing={1.5}>
+                <Typography variant="body2" color="text.secondary">
+                  Port mappings
+                </Typography>
+                {portRows.map((row, index) => (
+                  <Stack direction="row" spacing={1} key={`port-${index}`}>
+                    <TextField
+                      size="small"
+                      label="Container port"
+                      value={row.containerPort}
+                      onChange={(event) =>
+                        updatePortRow(
+                          index,
+                          "containerPort",
+                          event.target.value,
+                        )
+                      }
+                    />
+                    <TextField
+                      size="small"
+                      label="Host port (optional)"
+                      value={row.hostPort}
+                      onChange={(event) =>
+                        updatePortRow(index, "hostPort", event.target.value)
+                      }
+                    />
+                    <Select
+                      size="small"
+                      value={row.protocol}
+                      onChange={(event) =>
+                        setPortRows((rows) =>
+                          rows.map((r, i) =>
+                            i === index
+                              ? {
+                                  ...r,
+                                  protocol: event.target.value as "tcp" | "udp",
+                                }
+                              : r,
+                          ),
+                        )
+                      }
+                      sx={{ minWidth: 90 }}
+                    >
+                      <MenuItem value="tcp">tcp</MenuItem>
+                      <MenuItem value="udp">udp</MenuItem>
+                    </Select>
+                    <IconButton
+                      aria-label="Remove port mapping"
+                      onClick={() =>
+                        setPortRows((rows) =>
+                          rows.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <Remove />
+                    </IconButton>
+                  </Stack>
+                ))}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setPortRows((rows) => [
+                      ...rows,
+                      { containerPort: "", hostPort: "", protocol: "tcp" },
+                    ])
+                  }
+                >
+                  Add port mapping
+                </Button>
+                <Typography variant="body2" color="text.secondary">
+                  Environment variables
+                </Typography>
+                {envRows.map((row, index) => (
+                  <Stack direction="row" spacing={1} key={`env-${index}`}>
+                    <TextField
+                      size="small"
+                      label="Name"
+                      value={row.name}
+                      onChange={(event) =>
+                        updateEnvRow(index, "name", event.target.value)
+                      }
+                    />
+                    <TextField
+                      size="small"
+                      label="Value"
+                      value={row.value}
+                      onChange={(event) =>
+                        updateEnvRow(index, "value", event.target.value)
+                      }
+                    />
+                    <IconButton
+                      aria-label="Remove environment variable"
+                      onClick={() =>
+                        setEnvRows((rows) => rows.filter((_, i) => i !== index))
+                      }
+                    >
+                      <Remove />
+                    </IconButton>
+                  </Stack>
+                ))}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setEnvRows((rows) => [...rows, { name: "", value: "" }])
+                  }
+                >
+                  Add environment variable
+                </Button>
+                <Typography variant="body2" color="text.secondary">
+                  Labels
+                </Typography>
+                {labelRows.map((row, index) => (
+                  <Stack direction="row" spacing={1} key={`label-${index}`}>
+                    <TextField
+                      size="small"
+                      label="Key"
+                      value={row.key}
+                      onChange={(event) =>
+                        updateLabelRow(index, "key", event.target.value)
+                      }
+                    />
+                    <TextField
+                      size="small"
+                      label="Value"
+                      value={row.value}
+                      onChange={(event) =>
+                        updateLabelRow(index, "value", event.target.value)
+                      }
+                    />
+                    <IconButton
+                      aria-label="Remove label"
+                      onClick={() =>
+                        setLabelRows((rows) =>
+                          rows.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <Remove />
+                    </IconButton>
+                  </Stack>
+                ))}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setLabelRows((rows) => [...rows, { key: "", value: "" }])
+                  }
+                >
+                  Add label
+                </Button>
+                <Select
+                  size="small"
+                  label="Restart policy"
+                  value={restartPolicy}
+                  onChange={(event) => setRestartPolicy(event.target.value)}
+                  sx={{ minWidth: 220 }}
+                >
+                  <MenuItem value="">No restart policy</MenuItem>
+                  <MenuItem value="no">no</MenuItem>
+                  <MenuItem value="always">always</MenuItem>
+                  <MenuItem value="on-failure">on-failure</MenuItem>
+                  <MenuItem value="unless-stopped">unless-stopped</MenuItem>
+                </Select>
+              </Stack>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>

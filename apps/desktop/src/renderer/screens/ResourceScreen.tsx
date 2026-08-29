@@ -11,11 +11,13 @@ import {
   Refresh,
   Search,
   Storage,
+  CleaningServices,
 } from "@mui/icons-material";
 import {
   Alert,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -23,8 +25,10 @@ import {
   DialogTitle,
   Divider,
   Drawer,
+  FormControlLabel,
   IconButton,
   InputAdornment,
+  LinearProgress,
   MenuItem,
   Paper,
   Stack,
@@ -41,6 +45,8 @@ import type {
   Host,
   ImageSummary,
   NetworkSummary,
+  Operation,
+  PruneResourceKind,
   VolumeSummary,
 } from "@harbor/contracts";
 import { EmptyState } from "../components/EmptyState.js";
@@ -58,6 +64,8 @@ import {
   usePullImage,
   useNetworkInspect,
   useNetworks,
+  useOperation,
+  usePruneResources,
   useVolumeInspect,
   useVolumes,
 } from "../state/queries.js";
@@ -148,6 +156,8 @@ function ImagesView({ hostId }: { hostId?: string }) {
   );
   const pull = usePullImage(hostId);
   const remove = useDeleteImage(hostId);
+  const prune = usePruneResources(hostId);
+  const { data: user } = useCurrentUser();
   const showToast = useUiStore((state) => state.showToast);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<ImageSummary>();
@@ -155,6 +165,15 @@ function ImagesView({ hostId }: { hostId?: string }) {
   const [pullOpen, setPullOpen] = useState(false);
   const [pullReference, setPullReference] = useState("");
   const [pullError, setPullError] = useState<string>();
+  const [pullOperationId, setPullOperationId] = useState<string>();
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneAll, setPruneAll] = useState(false);
+  const pullOperation = useOperation(pullOperationId);
+  const pullActive =
+    pull.isPending ||
+    pullOperation?.status === "queued" ||
+    pullOperation?.status === "running";
+  const canPrune = (user?.role ?? "viewer") !== "viewer";
   const normalized = filter.trim().toLowerCase();
   const rows = useMemo(
     () =>
@@ -183,6 +202,30 @@ function ImagesView({ hostId }: { hostId?: string }) {
             >
               Refresh
             </Button>
+            <Tooltip
+              title={
+                canPrune
+                  ? "Remove unused images from the remote host"
+                  : "Operator permission required"
+              }
+            >
+              <span>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CleaningServices />}
+                  onClick={() => {
+                    setPruneAll(false);
+                    setPruneOpen(true);
+                  }}
+                  disabled={
+                    !hostId || !hostOnline || !canPrune || prune.isPending
+                  }
+                >
+                  Prune
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               variant="contained"
               startIcon={<CloudDownload />}
@@ -304,7 +347,7 @@ function ImagesView({ hostId }: { hostId?: string }) {
       />
       <Dialog
         open={pullOpen}
-        onClose={() => !pull.isPending && setPullOpen(false)}
+        onClose={() => !pullActive && setPullOpen(false)}
         fullWidth
         maxWidth="xs"
       >
@@ -319,11 +362,30 @@ function ImagesView({ hostId }: { hostId?: string }) {
               onChange={(event) => setPullReference(event.target.value)}
               helperText="The gateway pulls the image through the configured Engine registry access."
               autoFocus
+              disabled={pullActive}
             />
+            {pullOperation &&
+              (pullOperation.status === "queued" ||
+                pullOperation.status === "running") && (
+                <Stack spacing={1} sx={{ minWidth: 240 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {pullOperation.message ??
+                      "Pull started. Waiting for registry progress."}
+                  </Typography>
+                  <LinearProgress
+                    variant={
+                      typeof pullOperation.progress === "number"
+                        ? "determinate"
+                        : "indeterminate"
+                    }
+                    value={pullOperation.progress}
+                  />
+                </Stack>
+              )}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPullOpen(false)} disabled={pull.isPending}>
+          <Button onClick={() => setPullOpen(false)} disabled={pullActive}>
             Cancel
           </Button>
           <Button
@@ -335,31 +397,68 @@ function ImagesView({ hostId }: { hostId?: string }) {
                 return;
               }
               setPullError(undefined);
-              pull.mutate(image, {
-                onSuccess: (operation) => {
-                  setPullOpen(false);
-                  setPullReference("");
-                  showToast(
-                    operation.status === "succeeded"
-                      ? `${image} pulled to the remote host.`
-                      : (operation.message ?? "Image pull failed."),
-                    operation.status === "succeeded" ? "success" : "error",
-                  );
+              const operationId = crypto.randomUUID();
+              setPullOperationId(operationId);
+              pull.mutate(
+                { image, operationId },
+                {
+                  onSuccess: (operation) => {
+                    setPullOpen(false);
+                    setPullReference("");
+                    setPullOperationId(undefined);
+                    showToast(
+                      operation.status === "succeeded"
+                        ? `${image} pulled to the remote host.`
+                        : (operation.message ?? "Image pull failed."),
+                      operation.status === "succeeded" ? "success" : "error",
+                    );
+                  },
+                  onError: (error) =>
+                    setPullError(
+                      error instanceof Error
+                        ? error.message
+                        : "Image pull failed.",
+                    ),
                 },
-                onError: (error) =>
-                  setPullError(
-                    error instanceof Error
-                      ? error.message
-                      : "Image pull failed.",
-                  ),
-              });
+              );
             }}
-            disabled={pull.isPending}
+            disabled={pullActive}
           >
-            {pull.isPending ? "Pulling…" : "Pull image"}
+            {pull.isPending ? "Pulling\u2026" : "Pull image"}
           </Button>
         </DialogActions>
       </Dialog>
+      <PruneDialog
+        open={pruneOpen}
+        kind="images"
+        pending={prune.isPending}
+        all={pruneAll}
+        onAllChange={setPruneAll}
+        onClose={() => !prune.isPending && setPruneOpen(false)}
+        onConfirm={() => {
+          prune.mutate(
+            { kind: "images", all: pruneAll },
+            {
+              onSuccess: (operation) => {
+                setPruneOpen(false);
+                showToast(
+                  operation.status === "succeeded"
+                    ? "Unused images were pruned on the remote host."
+                    : (operation.message ?? "Image prune failed."),
+                  operation.status === "succeeded" ? "success" : "error",
+                );
+              },
+              onError: (error) =>
+                showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "Image prune failed.",
+                  "error",
+                ),
+            },
+          );
+        }}
+      />
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Remove image?"
@@ -411,6 +510,9 @@ function VolumesView({ hostId }: { hostId?: string }) {
   const create = useCreateVolume(hostId);
   const remove = useDeleteVolume(hostId);
   const { data: user } = useCurrentUser();
+  const prune = usePruneResources(hostId);
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const canPrune = (user?.role ?? "viewer") !== "viewer";
   const showToast = useUiStore((state) => state.showToast);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<VolumeSummary>();
@@ -476,6 +578,27 @@ function VolumesView({ hostId }: { hostId?: string }) {
             >
               Refresh
             </Button>
+            <Tooltip
+              title={
+                canPrune
+                  ? "Remove unused volumes from the remote host"
+                  : "Operator permission required"
+              }
+            >
+              <span>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CleaningServices />}
+                  onClick={() => setPruneOpen(true)}
+                  disabled={
+                    !hostId || !hostOnline || !canPrune || prune.isPending
+                  }
+                >
+                  Prune
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               variant="contained"
               startIcon={<Add />}
@@ -650,6 +773,35 @@ function VolumesView({ hostId }: { hostId?: string }) {
           </Button>
         </DialogActions>
       </Dialog>
+      <PruneDialog
+        open={pruneOpen}
+        kind="volumes"
+        pending={prune.isPending}
+        onClose={() => !prune.isPending && setPruneOpen(false)}
+        onConfirm={() => {
+          prune.mutate(
+            { kind: "volumes" },
+            {
+              onSuccess: (operation) => {
+                setPruneOpen(false);
+                showToast(
+                  operation.status === "succeeded"
+                    ? "Unused volumes were pruned on the remote host."
+                    : (operation.message ?? "Volume prune failed."),
+                  operation.status === "succeeded" ? "success" : "error",
+                );
+              },
+              onError: (error) =>
+                showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "Volume prune failed.",
+                  "error",
+                ),
+            },
+          );
+        }}
+      />
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete volume?"
@@ -700,6 +852,10 @@ function NetworksView({ hostId }: { hostId?: string }) {
   );
   const create = useCreateNetwork(hostId);
   const remove = useDeleteNetwork(hostId);
+  const prune = usePruneResources(hostId);
+  const { data: user } = useCurrentUser();
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const canPrune = (user?.role ?? "viewer") !== "viewer";
   const showToast = useUiStore((state) => state.showToast);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<NetworkSummary>();
@@ -769,6 +925,27 @@ function NetworksView({ hostId }: { hostId?: string }) {
             >
               Refresh
             </Button>
+            <Tooltip
+              title={
+                canPrune
+                  ? "Remove unused networks from the remote host"
+                  : "Operator permission required"
+              }
+            >
+              <span>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<CleaningServices />}
+                  onClick={() => setPruneOpen(true)}
+                  disabled={
+                    !hostId || !hostOnline || !canPrune || prune.isPending
+                  }
+                >
+                  Prune
+                </Button>
+              </span>
+            </Tooltip>
             <Button
               variant="contained"
               startIcon={<Add />}
@@ -923,6 +1100,35 @@ function NetworksView({ hostId }: { hostId?: string }) {
           </Button>
         </DialogActions>
       </Dialog>
+      <PruneDialog
+        open={pruneOpen}
+        kind="networks"
+        pending={prune.isPending}
+        onClose={() => !prune.isPending && setPruneOpen(false)}
+        onConfirm={() => {
+          prune.mutate(
+            { kind: "networks" },
+            {
+              onSuccess: (operation) => {
+                setPruneOpen(false);
+                showToast(
+                  operation.status === "succeeded"
+                    ? "Unused networks were pruned on the remote host."
+                    : (operation.message ?? "Network prune failed."),
+                  operation.status === "succeeded" ? "success" : "error",
+                );
+              },
+              onError: (error) =>
+                showToast(
+                  error instanceof Error
+                    ? error.message
+                    : "Network prune failed.",
+                  "error",
+                ),
+            },
+          );
+        }}
+      />
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete network?"
@@ -1212,6 +1418,69 @@ function ConfirmDialog({
           }
         >
           {pending ? "Working…" : confirmLabel}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function PruneDialog({
+  open,
+  kind,
+  pending,
+  all,
+  onAllChange,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  kind: PruneResourceKind;
+  pending: boolean;
+  all?: boolean;
+  onAllChange?: (value: boolean) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Prune {kind}?</DialogTitle>
+      <DialogContent>
+        <Stack spacing={1.5}>
+          <Typography color="text.secondary">
+            Removes unused {kind} from the remote host that are no longer
+            referenced. Pruned resources cannot be recovered.
+          </Typography>
+          {onAllChange && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={all ?? false}
+                  onChange={(event) => onAllChange(event.target.checked)}
+                />
+              }
+              label="Include resources still referenced by stopped containers"
+            />
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={pending}>
+          Cancel
+        </Button>
+        <Button
+          color="error"
+          variant="contained"
+          onClick={onConfirm}
+          disabled={pending}
+          startIcon={
+            pending ? (
+              <CircularProgress size={15} color="inherit" />
+            ) : (
+              <CleaningServices />
+            )
+          }
+        >
+          {pending ? "Pruning\u2026" : "Prune"}
         </Button>
       </DialogActions>
     </Dialog>

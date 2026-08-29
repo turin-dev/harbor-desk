@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ContainerCreateInput,
+  PruneResourceKind,
   NetworkCreateInput,
   VolumeCreateInput,
 } from "@harbor/contracts";
@@ -169,11 +170,51 @@ export function useDeleteImage(hostId: string | undefined) {
 export function usePullImage(hostId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (image: string) => gateway.pullImage(hostId!, { image }),
+    mutationFn: (input: { image: string; operationId?: string }) => {
+      const operationId = input.operationId ?? crypto.randomUUID();
+      return gateway.pullImage(hostId!, { image: input.image }, operationId);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
     },
+  });
+}
+
+export function useOperation(operationId: string | undefined) {
+  const isFinal = (status?: string) =>
+    status === "succeeded" || status === "failed" || status === "cancelled";
+
+  return useQuery({
+    queryKey: ["operation", operationId],
+    queryFn: () => gateway.getOperation(operationId!),
+    enabled: Boolean(operationId),
+    refetchInterval: (query) =>
+      isFinal(query.state.data?.status) ? false : 2000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePruneResources(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, all }: { kind: PruneResourceKind; all?: boolean }) =>
+      gateway.pruneResources(hostId!, kind, all ?? false),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["volumes", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["networks", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["containers", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
+    },
+  });
+}
+
+export function useAudit(limit?: number) {
+  return useQuery({
+    queryKey: ["audit", limit],
+    queryFn: () => gateway.getAudit(limit ?? 200),
+    refetchOnWindowFocus: false,
   });
 }
 

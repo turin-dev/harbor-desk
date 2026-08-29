@@ -1,6 +1,7 @@
 import type {
   ApiErrorResponse,
   ApiResponse,
+  AuditEvent,
   AuthProvider,
   ContainerCreateInput,
   ContainerSummary,
@@ -13,6 +14,8 @@ import type {
   NetworkCreateInput,
   NetworkSummary,
   Operation,
+  PruneResourceKind,
+  PruneSummary,
   TerminalSession,
   VolumeCreateInput,
   VolumeSummary,
@@ -250,13 +253,16 @@ export const gateway = {
     request<ImageSummary[]>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/images`,
     ),
-  pullImage: (hostId: string, input: ImagePullInput) =>
+  pullImage: (hostId: string, input: ImagePullInput, operationId?: string) =>
     request<Operation>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/images/pull`,
       {
         method: "POST",
         body: JSON.stringify(input),
-        headers: { "idempotency-key": crypto.randomUUID() },
+        headers: {
+          "idempotency-key": crypto.randomUUID(),
+          ...(operationId ? { "operation-id": operationId } : {}),
+        },
       },
     ),
   getImageInspect: (hostId: string, imageId: string) =>
@@ -324,6 +330,15 @@ export const gateway = {
     request<Operation>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/containers/${encodeURIComponent(containerId)}?force=${force ? "true" : "false"}`,
       { method: "DELETE", headers: { "idempotency-key": crypto.randomUUID() } },
+    ),
+  getOperation: (operationId: string) =>
+    request<Operation>(`/api/v1/operations/${encodeURIComponent(operationId)}`),
+  getAudit: (limit = 200) =>
+    request<AuditEvent[]>(`/api/v1/audit?limit=${limit}`),
+  pruneResources: (hostId: string, kind: PruneResourceKind, all = false) =>
+    request<Operation>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/prune/${kind}?all=${all ? "true" : "false"}`,
+      { method: "POST", headers: { "idempotency-key": crypto.randomUUID() } },
     ),
   createTerminalSession: (
     hostId: string,

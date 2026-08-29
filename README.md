@@ -50,6 +50,13 @@ The repository currently contains a working first vertical slice:
 - Host-aware container list, live filtering, run/create+start, lifecycle
   actions, action menu, inspect/logs/stats, one-shot exec terminal sessions,
   and cursor-resumable event stream.
+  actions, action menu, inspect/logs/stats, one-shot exec terminal sessions,
+  and cursor-resumable event stream.
+- Container run options: published ports, environment variables, restart
+  policy, and labels, with client-side validation before create+start.
+- Live image pull progress through gateway operation polling (determinate
+  progress and status messages), and prune operations for containers,
+  images, volumes, and networks from their resource screens.
 - Live image inspect/remove, volume create/inspect/delete, and network
   create/inspect/delete flows with destructive-action confirmation.
 - Quick search across live remote resources, event notification center, toast
@@ -62,6 +69,11 @@ The repository currently contains a working first vertical slice:
   summary.
 - Operation records with idempotency keys for container mutations, audit
   metadata for implemented mutation paths, and short-lived WebSocket tickets.
+  metadata for implemented mutation paths, and short-lived WebSocket tickets.
+
+- An admin-only Audit log screen that renders the gateway audit trail with
+  actor, host, action, resource, and result states, and a clear
+  permission-denied state for non-admin users.
 - Generic OIDC provider selection, Authorization Code + PKCE browser launch,
   server-side token exchange, and Electron keychain refresh-token storage.
 - Remote-native settings and connection/status states.

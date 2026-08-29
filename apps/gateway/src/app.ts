@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
@@ -15,6 +16,7 @@ import type {
   HostRegistrationInput,
   ImagePullInput,
   NetworkCreateInput,
+  PruneResourceKind,
   TerminalFrame,
   VolumeCreateInput,
 } from "@harbor/contracts";
@@ -85,9 +87,56 @@ const containerCreateBody = Type.Object({
   image: Type.String({ minLength: 1, maxLength: 512 }),
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
   command: Type.Optional(Type.String({ maxLength: 4_096 })),
+  ports: Type.Optional(
+    Type.Array(
+      Type.Object({
+        containerPort: Type.Integer({ minimum: 1, maximum: 65535 }),
+        hostPort: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
+        protocol: Type.Optional(
+          Type.Union([Type.Literal("tcp"), Type.Literal("udp")]),
+        ),
+      }),
+      { maxItems: 32 },
+    ),
+  ),
+  env: Type.Optional(
+    Type.Array(
+      Type.Object({
+        name: Type.String({ minLength: 1, maxLength: 255 }),
+        value: Type.String({ maxLength: 16_384 }),
+      }),
+      { maxItems: 64 },
+    ),
+  ),
+  restartPolicy: Type.Optional(
+    Type.Union([
+      Type.Literal("no"),
+      Type.Literal("always"),
+      Type.Literal("on-failure"),
+      Type.Literal("unless-stopped"),
+    ]),
+  ),
+  labels: Type.Optional(
+    Type.Record(
+      Type.String({ minLength: 1, maxLength: 255 }),
+      Type.String({ maxLength: 16_384 }),
+    ),
+  ),
 });
 const imagePullBody = Type.Object({
   image: Type.String({ minLength: 1, maxLength: 512 }),
+});
+const pruneParams = Type.Object({
+  hostId: Type.String({ minLength: 1, maxLength: 128 }),
+  kind: Type.Union([
+    Type.Literal("containers"),
+    Type.Literal("images"),
+    Type.Literal("volumes"),
+    Type.Literal("networks"),
+  ]),
+});
+const pruneQuery = Type.Object({
+  all: Type.Optional(Type.Boolean()),
 });
 const volumeCreateBody = Type.Object({
   name: Type.String({ minLength: 1, maxLength: 255 }),
@@ -553,6 +602,12 @@ export async function buildApp(
         image: body.image.trim(),
         ...(body.name?.trim() ? { name: body.name.trim() } : {}),
         ...(body.command?.trim() ? { command: body.command.trim() } : {}),
+        ...(body.ports?.length ? { ports: body.ports } : {}),
+        ...(body.env?.length ? { env: body.env } : {}),
+        ...(body.restartPolicy ? { restartPolicy: body.restartPolicy } : {}),
+        ...(body.labels && Object.keys(body.labels).length
+          ? { labels: body.labels }
+          : {}),
       };
       const operation = await operations.run(
         {
@@ -733,14 +788,40 @@ export async function buildApp(
       });
       const body = request.body as ImagePullInput;
       const input = { image: body.image.trim() } satisfies ImagePullInput;
+      const operationId =
+        typeof request.headers["operation-id"] === "string" &&
+        (request.headers["operation-id"] as string).trim().length <= 128
+          ? (request.headers["operation-id"] as string).trim()
+          : undefined;
       const operation = await operations.run(
         {
           kind: "image.pull",
           hostId,
+          ...(operationId ? { operationId } : {}),
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () => registry.pullImage(hostId, input),
+        async () => {
+          let lastStatus = "";
+          await registry.pullImage(hostId, input, (frame) => {
+            if (!frame.status || frame.status === lastStatus) return;
+            lastStatus = frame.status;
+            const label = frame.id
+              ? `${frame.status} ${frame.id}`
+              : frame.status;
+            operations.setProgress(
+              operationId ?? "",
+              frame.status === "Pull complete"
+                ? 95
+                : frame.status === "Download complete"
+                  ? 90
+                  : frame.status === "Waiting"
+                    ? 15
+                    : 60,
+              label,
+            );
+          });
+        },
       );
       audit.record({
         actorId: user.id,
@@ -812,6 +893,50 @@ export async function buildApp(
         hostId,
         resourceKind: "image",
         resourceId: imageId,
+        result: operation.status === "succeeded" ? "success" : "failure",
+        requestId: request.id,
+      });
+      return sendData(reply, operation, 202);
+    },
+  );
+
+  app.post(
+    "/api/v1/hosts/:hostId/prune/:kind",
+    { schema: { params: pruneParams, querystring: pruneQuery } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId, kind } = request.params as {
+        hostId: string;
+        kind: PruneResourceKind;
+      };
+      assertHostAccess(user, hostId, {
+        action: `prune.${kind}`,
+        resourceKind: kind,
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: `prune.${kind}`,
+        hostId,
+        resourceKind: kind,
+        requestId: request.id,
+      });
+      const { all } = request.query as { all?: boolean };
+      const operation = await operations.run(
+        {
+          kind: `prune.${kind}`,
+          hostId,
+          idempotencyKey: getIdempotencyKey(request),
+          requestId: request.id,
+        },
+        async () => {
+          await registry.pruneResources(hostId, kind, all ?? false);
+        },
+      );
+      audit.record({
+        actorId: user.id,
+        action: `prune.${kind}`,
+        hostId,
+        resourceKind: kind,
         result: operation.status === "succeeded" ? "success" : "failure",
         requestId: request.id,
       });

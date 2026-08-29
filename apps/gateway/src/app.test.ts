@@ -140,3 +140,211 @@ test("fails closed when production has no injected secret store", async () => {
       error.code === "secret_store_not_configured",
   );
 });
+
+test("tracks prune operations and audit results for a host without an Engine", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Prune test engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+
+  const badKind = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/prune/volumes-2",
+  });
+  assert.equal(badKind.statusCode, 400);
+  assert.equal(badKind.json().error.code, "validation_error");
+
+  const unknownHost = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/does-not-exist/prune/images",
+  });
+  assert.equal(unknownHost.statusCode, 403);
+  assert.equal(unknownHost.json().error.code, "host_access_denied");
+
+  const prune = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/prune/images?all=true",
+  });
+  assert.equal(prune.statusCode, 202);
+  const operation = prune.json().data;
+  assert.equal(operation.status, "failed");
+  assert.equal(operation.kind, "prune.images");
+  assert.equal(operation.error.code, "host_unavailable");
+  assert.ok(operation.finishedAt);
+
+  const audit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/audit?limit=50",
+  });
+  assert.equal(audit.statusCode, 200);
+  const entries = audit.json().data as Array<{
+    action?: unknown;
+    result?: unknown;
+  }>;
+  const pruneAudit = entries.find(
+    (entry) => entry.action === "prune.images" && entry.result === "failure",
+  );
+  assert.ok(pruneAudit, "expected a failed prune audit entry");
+  assert.ok(
+    entries.some(
+      (entry) => entry.action === "prune.images" && entry.result === "denied",
+    ),
+    "expected a denied prune audit entry for the unknown host",
+  );
+});
+
+test("reports operation progress and cancel outcomes", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Operations engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const prune = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/prune/containers",
+  });
+  assert.equal(prune.statusCode, 202);
+  const operation = prune.json().data;
+
+  harbor.operations.setProgress(operation.id, 42, "Half cleaned");
+  const mid = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/operations/" + operation.id,
+  });
+  assert.equal(mid.statusCode, 200);
+  assert.equal(mid.json().data.progress, 42);
+  assert.equal(mid.json().data.message, "Half cleaned");
+
+  const missing = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/operations/not-an-operation",
+  });
+  assert.equal(missing.statusCode, 404);
+  assert.equal(missing.json().error.code, "operation_not_found");
+
+  const cancelMissing = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/operations/not-an-operation/cancel",
+  });
+  assert.equal(cancelMissing.statusCode, 404);
+  assert.equal(cancelMissing.json().error.code, "operation_not_found");
+});
+
+test("surfaces pull progress through operation polling for a live Engine", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Pull progress engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const records = (
+    harbor.registry as unknown as {
+      records: Map<string, { client: Record<string, unknown> }>;
+    }
+  ).records.get(host.id);
+  assert.ok(records, "expected the seeded host record");
+  records.client.probe = async () => ({
+    summary: {
+      id: "probe-1",
+      version: "27.0.0",
+      apiVersion: "1.47",
+      minApiVersion: "1.12",
+      operatingSystem: "linux",
+      architecture: "amd64",
+      containers: 0,
+      containersRunning: 0,
+      containersStopped: 0,
+      images: 0,
+      memoryTotalBytes: 0,
+    },
+    capabilities: {
+      containers: true,
+      images: true,
+      volumes: true,
+      networks: true,
+      logs: true,
+      stats: true,
+      exec: true,
+      compose: false,
+      buildkit: true,
+      kubernetes: false,
+      extensions: false,
+      imageScan: false,
+      volumeFileBrowser: false,
+    },
+  });
+  records.client.createEventStream = async () => (async function* () {})();
+  await harbor.registry.test(host.id);
+  records.client.pullImage = async (
+    _input: unknown,
+    onProgress?: (frame: { status: string; id?: string }) => void,
+  ) => {
+    onProgress?.({ status: "Waiting", id: "nginx" });
+    onProgress?.({ status: "Downloading", id: "layer-1" });
+    onProgress?.({ status: "Download complete", id: "layer-1" });
+    onProgress?.({ status: "Pull complete", id: "layer-1" });
+  };
+  const pull = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/images/pull",
+    headers: { "operation-id": "pull-progress-op-1" },
+    payload: { image: "nginx:1.27" },
+  });
+  assert.equal(pull.statusCode, 202);
+  const operation = pull.json().data;
+  assert.equal(operation.id, "pull-progress-op-1");
+  assert.equal(operation.status, "succeeded");
+  assert.equal(operation.progress, 100);
+
+  const polled = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/operations/pull-progress-op-1",
+  });
+  assert.equal(polled.statusCode, 200);
+  assert.equal(polled.json().data.status, "succeeded");
+});
+
+test("validates container creation input and audit limits", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Validation engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const badPort = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers",
+    payload: {
+      image: "nginx:1.27",
+      ports: [{ containerPort: 70000, protocol: "tcp" }],
+    },
+  });
+  assert.equal(badPort.statusCode, 400);
+  assert.equal(badPort.json().error.code, "validation_error");
+
+  const badRestart = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers",
+    payload: { image: "nginx:1.27", restartPolicy: "sometimes" },
+  });
+  assert.equal(badRestart.statusCode, 400);
+  assert.equal(badRestart.json().error.code, "validation_error");
+
+  const missingImage = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers",
+    payload: {},
+  });
+  assert.equal(missingImage.statusCode, 400);
+  assert.equal(missingImage.json().error.code, "validation_error");
+
+  const badAuditLimit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/audit?limit=abc",
+  });
+  assert.equal(badAuditLimit.statusCode, 400);
+  assert.equal(badAuditLimit.json().error.code, "validation_error");
+});

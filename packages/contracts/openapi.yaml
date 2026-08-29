@@ -124,6 +124,20 @@ paths:
       responses:
         "202":
           description: Container create and start operation
+  /api/v1/hosts/{hostId}/prune/{kind}:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [containers, images, volumes, networks]
+        - { name: all, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "202":
+          description: Resource prune operation (operator or admin role required)
   /api/v1/hosts/{hostId}/containers/{containerId}/inspect:
     get:
       parameters:
@@ -178,6 +192,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/hostId"
         - $ref: "#/components/parameters/idempotencyKey"
+        - {
+            name: operation-id,
+            in: header,
+            schema: { type: string, maxLength: 128 },
+            description: Client-generated operation id used to track pull progress via the operations endpoint.,
+          }
       requestBody:
         required: true
         content:
@@ -423,6 +443,54 @@ components:
         image: { type: string, minLength: 1, maxLength: 512 }
         name: { type: string, minLength: 1, maxLength: 255 }
         command: { type: string, maxLength: 4096 }
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortMapping"
+        env:
+          type: array
+          items:
+            $ref: "#/components/schemas/EnvVar"
+        restartPolicy:
+          type: string
+          enum: [no, always, on-failure, unless-stopped]
+        labels:
+          type: object
+          additionalProperties: { type: string }
+    PortMapping:
+      type: object
+      required: [containerPort]
+      properties:
+        containerPort: { type: integer, minimum: 1, maximum: 65535 }
+        hostPort: { type: integer, minimum: 1, maximum: 65535 }
+        protocol: { type: string, enum: [tcp, udp], default: tcp }
+    EnvVar:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        value: { type: string, maxLength: 4096 }
+    PruneSummary:
+      type: object
+      properties:
+        freedBytes: { type: integer, minimum: 0 }
+        containersDeleted:
+          type: array
+          items: { type: string }
+        imagesDeleted:
+          type: array
+          items:
+            type: object
+            properties:
+              Digest: { type: string }
+              Untagged: { type: string }
+              Deleted: { type: string }
+        volumesDeleted:
+          type: array
+          items: { type: string }
+        networksDeleted:
+          type: array
+          items: { type: string }
     ImagePullInput:
       type: object
       required: [image]

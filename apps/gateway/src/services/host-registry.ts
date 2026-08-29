@@ -12,6 +12,8 @@ import type {
   HostRegistrationInput,
   ImagePullInput,
   ImageSummary,
+  PruneResourceKind,
+  PruneSummary,
   NetworkCreateInput,
   NetworkSummary,
   TerminalSession,
@@ -19,7 +21,11 @@ import type {
   VolumeSummary,
 } from "@harbor/contracts";
 import type { GatewayConfig } from "@harbor/config";
-import { DockerEngineClient, EngineRequestError } from "@harbor/connectors";
+import {
+  DockerEngineClient,
+  EngineRequestError,
+  type PullProgressFrame,
+} from "@harbor/connectors";
 import { HttpError } from "../errors.js";
 import { EventHub } from "./events.js";
 import {
@@ -273,12 +279,40 @@ export class HostRegistry {
     }
   }
 
-  public async pullImage(hostId: string, input: ImagePullInput): Promise<void> {
+  public async pullImage(
+    hostId: string,
+    input: ImagePullInput,
+    onProgress?: (frame: PullProgressFrame) => void,
+  ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.pullImage(input);
+      await record.client.pullImage(input, onProgress);
       this.markOnline(record);
+    } catch (error) {
+      this.markOfflineIfConnectionError(record, error);
+      throw this.upstreamError(error);
+    }
+  }
+
+  public async pruneResources(
+    hostId: string,
+    kind: PruneResourceKind,
+    all = false,
+  ): Promise<PruneSummary> {
+    const record = this.get(hostId);
+    this.assertOnline(record);
+    try {
+      const summary =
+        kind === "containers"
+          ? await record.client.pruneContainers(all)
+          : kind === "images"
+            ? await record.client.pruneImages(all)
+            : kind === "volumes"
+              ? await record.client.pruneVolumes()
+              : await record.client.pruneNetworks();
+      this.markOnline(record);
+      return summary;
     } catch (error) {
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);

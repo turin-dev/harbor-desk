@@ -7,6 +7,23 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- Container run options: the create dialog now supports published ports
+  (container/host port plus protocol), environment variables, a restart
+  policy, and labels, and the gateway validates all run-option input
+  against the Engine create contract.
+- Live image pull progress: pulls accept a client-generated operation id
+  and the pull screen shows determinate progress with Engine status
+  messages while polling the operation record every 2 seconds.
+- Prune operations for containers, images, volumes, and networks via
+  `POST /api/v1/hosts/{hostId}/prune/{kind}` (operator role, audited,
+  returns a 202 operation record), with Prune dialogs on the Images,
+  Volumes, and Networks screens and a clean-up action on Containers.
+- An admin-only Audit log screen (`/audit`) rendering the gateway audit
+  trail (actor, host, action, resource, result) with loading, error,
+  empty, and non-admin permission states.
+
 ### Fixed
 
 - The Troubleshoot screen can now retry a saved Gateway or Docker Engine target

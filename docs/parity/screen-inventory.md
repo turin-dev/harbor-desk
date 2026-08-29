@@ -79,6 +79,7 @@ actual Electron window, not merely in a browser tab:
 | Settings       | General, startup-update, and remote-native settings                               | Gateway configuration and policy |
 | Troubleshoot   | Live gateway, host, API, and capability diagnostics                               | Gateway/host diagnostics         |
 | About          | Client/gateway versions and redacted diagnostics                                  | Client runtime                   |
+| Audit log      | Admin-only audit trail with result chips and permission state                     | Gateway audit store              |
 
 No screen may report a successful action from fixture data. A surface is
 production-ready only when its adapter returns real data or an explicit,

@@ -6,6 +6,7 @@ import type { EventHub } from "./events.js";
 interface OperationInput {
   kind: string;
   hostId?: string;
+  operationId?: string;
   idempotencyKey?: string;
   requestId: string;
 }
@@ -26,19 +27,19 @@ export class OperationStore {
       : undefined;
     if (existingId) return this.get(existingId);
 
+    const id = input.operationId?.trim() || randomUUID();
+    if (this.operations.has(id)) return this.get(id);
+
     const operation: Operation = {
-      id: randomUUID(),
+      id,
       hostId: input.hostId,
       kind: input.kind,
       status: "queued",
       startedAt: new Date().toISOString(),
     };
-    this.operations.set(operation.id, operation);
+    this.operations.set(id, operation);
     if (idempotencyKey)
-      this.idempotency.set(
-        this.idempotencyKey(input, idempotencyKey),
-        operation.id,
-      );
+      this.idempotency.set(this.idempotencyKey(input, idempotencyKey), id);
     this.publish(operation);
 
     operation.status = "running";
@@ -72,6 +73,18 @@ export class OperationStore {
       ...operation,
       ...(operation.error ? { error: { ...operation.error } } : {}),
     };
+  }
+
+  public setProgress(
+    operationId: string,
+    progress: number,
+    message?: string,
+  ): void {
+    const operation = this.operations.get(operationId);
+    if (!operation) return;
+    const clamped = Math.max(0, Math.min(100, Math.floor(progress)));
+    operation.progress = clamped;
+    if (message) operation.message = message;
   }
 
   public cancel(operationId: string): Operation {

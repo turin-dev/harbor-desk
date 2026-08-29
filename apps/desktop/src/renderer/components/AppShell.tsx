@@ -95,6 +95,11 @@ const primaryNavigation = [
 
 const secondaryNavigation = [
   {
+    label: "Audit log",
+    path: "/audit",
+    icon: <History fontSize="small" />,
+  },
+  {
     label: "Extensions",
     path: "/extensions",
     icon: <Extension fontSize="small" />,

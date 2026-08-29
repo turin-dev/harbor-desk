@@ -77,6 +77,36 @@ export interface ContainerCreateInput {
   image: string;
   name?: string;
   command?: string;
+  ports?: PortMapping[];
+  env?: EnvVar[];
+  restartPolicy?: "no" | "always" | "on-failure" | "unless-stopped";
+  labels?: Record<string, string>;
+}
+
+export interface PortMapping {
+  containerPort: number;
+  hostPort?: number;
+  protocol?: "tcp" | "udp";
+}
+
+export interface EnvVar {
+  name: string;
+  value: string;
+}
+
+export type PruneResourceKind =
+  "containers" | "images" | "volumes" | "networks";
+
+export interface PruneSummary {
+  freedBytes?: number;
+  containersDeleted?: string[];
+  imagesDeleted?: Array<{
+    Digest?: string;
+    Untagged?: string;
+    Deleted?: string;
+  }>;
+  volumesDeleted?: string[];
+  networksDeleted?: string[];
 }
 
 export interface ImagePullInput {

@@ -11,6 +11,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { createHarborTheme } from "@harbor/ui";
 import { AppShell } from "./components/AppShell.js";
 import { DashboardScreen } from "./screens/DashboardScreen.js";
+import { AuditScreen } from "./screens/AuditScreen.js";
 import { ContainersScreen } from "./screens/ContainersScreen.js";
 import { HostsScreen } from "./screens/HostsScreen.js";
 import { ResourceScreen } from "./screens/ResourceScreen.js";
@@ -130,6 +131,7 @@ function AuthGate() {
       <Route element={<AppShell />}>
         <Route path="/" element={<Navigate to="/containers" replace />} />
         <Route path="/dashboard" element={<DashboardScreen />} />
+        <Route path="/audit" element={<AuditScreen />} />
         <Route path="/containers" element={<ContainersScreen />} />
         <Route path="/hosts" element={<HostsScreen />} />
         <Route path="/images" element={<ResourceScreen kind="images" />} />

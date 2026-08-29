@@ -17,6 +17,7 @@ import type {
   EngineSummary,
   ImagePullInput,
   ImageSummary,
+  PruneSummary,
   NetworkSummary,
   NetworkCreateInput,
   VolumeCreateInput,
@@ -38,6 +39,13 @@ export interface EngineClientOptions {
 export interface EngineProbe {
   summary: EngineSummary;
   capabilities: CapabilityMatrix;
+}
+
+export interface PullProgressFrame {
+  status?: string;
+  id?: string;
+  progress?: string;
+  detail?: string;
 }
 
 interface RawContainer {
@@ -174,6 +182,23 @@ function digestForEvent(event: EngineEvent): string {
     .slice(0, 20);
 }
 
+function consumePullFrame(
+  line: string,
+  onProgress?: (frame: PullProgressFrame) => void,
+): void {
+  if (!line.trim()) return;
+  try {
+    const frame = JSON.parse(line) as PullProgressFrame & { error?: unknown };
+    if (typeof frame.error === "string" && frame.error)
+      throw new EngineRequestError(frame.error, 500, line);
+    onProgress?.(frame);
+  } catch (error) {
+    if (error instanceof EngineRequestError) throw error;
+    // Docker may emit a non-JSON progress line; HTTP status remains the
+    // source of truth for a completed pull.
+  }
+}
+
 export class DockerEngineClient {
   private readonly endpoint: URL;
   private readonly endpointText: string;
@@ -302,24 +327,62 @@ export class DockerEngineClient {
     );
   }
 
-  public async pullImage(input: ImagePullInput): Promise<void> {
+  public async pullImage(
+    input: ImagePullInput,
+    onProgress?: (frame: PullProgressFrame) => void,
+  ): Promise<void> {
     const response = await this.requestStream(
       `/images/create?fromImage=${encodeURIComponent(input.image)}`,
       { method: "POST" },
     );
-    const body = await collectBody(response);
-    for (const line of body.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const frame = JSON.parse(line) as { error?: unknown };
-        if (typeof frame.error === "string" && frame.error)
-          throw new EngineRequestError(frame.error, 500, line);
-      } catch (error) {
-        if (error instanceof EngineRequestError) throw error;
-        // Docker may emit a non-JSON progress line; HTTP status remains the
-        // source of truth for a completed pull.
-      }
+    let buffer = "";
+    for await (const chunk of response) {
+      buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) consumePullFrame(line, onProgress);
     }
+    consumePullFrame(buffer, onProgress);
+  }
+
+  public async pruneContainers(all: boolean): Promise<PruneSummary> {
+    const response = await this.requestJson<{
+      ContainersDeleted?: string[];
+      SpaceReclaimed?: number;
+    }>(`/containers/prune?all=${all ? "1" : "0"}`, { method: "POST" });
+    return {
+      freedBytes: response.SpaceReclaimed,
+      containersDeleted: response.ContainersDeleted,
+    };
+  }
+
+  public async pruneImages(all: boolean): Promise<PruneSummary> {
+    const response = await this.requestJson<{
+      ImagesDeleted?: Array<{
+        Digest?: string;
+        Untagged?: string;
+        Deleted?: string;
+      }>;
+      SpaceReclaimed?: number;
+    }>(`/images/prune?all=${all ? "1" : "0"}`, { method: "POST" });
+    return {
+      freedBytes: response.SpaceReclaimed,
+      imagesDeleted: response.ImagesDeleted,
+    };
+  }
+
+  public async pruneVolumes(): Promise<PruneSummary> {
+    const response = await this.requestJson<{
+      VolumesDeleted?: string[];
+    }>("/volumes/prune", { method: "POST" });
+    return { volumesDeleted: response.VolumesDeleted };
+  }
+
+  public async pruneNetworks(): Promise<PruneSummary> {
+    const response = await this.requestJson<{
+      NetworksDeleted?: string[];
+    }>("/networks/prune", { method: "POST" });
+    return { networksDeleted: response.NetworksDeleted };
   }
 
   public async deleteImage(imageId: string, force = false): Promise<void> {
@@ -416,17 +479,29 @@ export class DockerEngineClient {
 
   public async createContainer(input: ContainerCreateInput): Promise<string> {
     const query = input.name ? `?name=${encodeURIComponent(input.name)}` : "";
+    const body: Record<string, unknown> = { Image: input.image };
+    if (input.command?.trim()) body.Cmd = ["sh", "-lc", input.command.trim()];
+    if (input.restartPolicy) body.RestartPolicy = { Name: input.restartPolicy };
+    if (input.labels && Object.keys(input.labels).length)
+      body.Labels = input.labels;
+    if (input.env?.length)
+      body.Env = input.env.map((item) => `${item.name}=${item.value}`);
+    if (input.ports?.length) {
+      const exposedPorts: Record<string, Record<string, never>> = {};
+      const portBindings: Record<string, Array<Record<string, string>>> = {};
+      for (const mapping of input.ports) {
+        const key = `${mapping.containerPort}/${mapping.protocol ?? "tcp"}`;
+        exposedPorts[key] = {};
+        portBindings[key] = [
+          mapping.hostPort ? { HostPort: String(mapping.hostPort) } : {},
+        ];
+      }
+      body.ExposedPorts = exposedPorts;
+      body.PortBindings = portBindings;
+    }
     const response = await this.requestJson<RawCreateResponse>(
       `/containers/create${query}`,
-      {
-        method: "POST",
-        body: {
-          Image: input.image,
-          ...(input.command?.trim()
-            ? { Cmd: ["sh", "-lc", input.command.trim()] }
-            : {}),
-        },
-      },
+      { method: "POST", body },
     );
     if (!response.Id)
       throw new Error("Docker Engine did not return a container id.");
