@@ -97,6 +97,27 @@ paths:
       responses:
         "201":
           description: Registered remote host
+  /api/v1/hosts/{hostId}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "204":
+          description: Removed remote host (admin role required)
+  /api/v1/hosts/{hostId}/test:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Re-probed host status (admin role required)
+  /api/v1/hosts/{hostId}/capabilities:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Host capability matrix
   /api/v1/hosts/{hostId}/dashboard:
     get:
       parameters:
@@ -124,6 +145,21 @@ paths:
       responses:
         "202":
           description: Container create and start operation
+  /api/v1/hosts/{hostId}/containers/{containerId}/{action}:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/containerId"
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, restart, pause, unpause, kill]
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "202":
+          description: Container lifecycle operation (operator or admin role required)
   /api/v1/hosts/{hostId}/prune/{kind}:
     post:
       parameters:
@@ -517,6 +553,36 @@ components:
         name: { type: string, minLength: 1, maxLength: 255 }
         driver: { type: string, minLength: 1, maxLength: 128 }
         internal: { type: boolean, default: false }
+    CapabilityMatrix:
+      type: object
+      required:
+        [
+          containers,
+          images,
+          volumes,
+          networks,
+          logs,
+          stats,
+          exec,
+          compose,
+          buildkit,
+          kubernetes,
+          extensions,
+          imageScan,
+        ]
+      properties:
+        containers: { type: boolean }
+        images: { type: boolean }
+        volumes: { type: boolean }
+        networks: { type: boolean }
+        logs: { type: boolean }
+        stats: { type: boolean }
+        exec: { type: boolean }
+        compose: { type: boolean }
+        buildkit: { type: boolean }
+        kubernetes: { type: boolean }
+        extensions: { type: boolean }
+        imageScan: { type: boolean }
   securitySchemes:
     bearerAuth:
       type: http

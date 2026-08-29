@@ -60,6 +60,15 @@ still change between minor versions.
 
 ### Fixed
 
+- The canonical OpenAPI contract now documents the gateway routes that
+  were already implemented but missing from the spec: host removal
+  (`DELETE /api/v1/hosts/{hostId}`, admin, 204), the admin host
+  re-probe (`POST /api/v1/hosts/{hostId}/test`), the capability
+  matrix read (`GET /api/v1/hosts/{hostId}/capabilities`, plus a new
+  `CapabilityMatrix` schema), and the container lifecycle actions
+  (`POST /api/v1/hosts/{hostId}/containers/{containerId}/{action}`
+  for start, stop, restart, pause, unpause, and kill, operator or
+  admin, 202 operation). No endpoint behavior changed.
 - The Troubleshoot screen can now retry a saved Gateway or Docker Engine target
   using the existing secure configuration, and successful retries refresh the
   active host/resource queries without requiring the user to re-enter mTLS data.
