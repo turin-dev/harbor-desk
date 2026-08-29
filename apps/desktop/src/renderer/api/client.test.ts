@@ -155,3 +155,42 @@ test("sends the operation-id header for cancellable prune requests", async () =>
     restoreWindow();
   }
 });
+
+test("builds gateway stream WebSocket URLs from the active gateway", async () => {
+  const restoreWindow = installWindow();
+  try {
+    assert.equal(
+      await import("./client.js").then((m) => m.getGatewayWebSocketUrl()),
+      "wss://gateway.example.test/api/v1/stream",
+    );
+    assert.equal(
+      await import("./client.js").then((m) => m.getGatewayWebSocketUrl("h1")),
+      "wss://gateway.example.test/api/v1/stream?hostId=h1",
+    );
+    assert.equal(
+      await import("./client.js").then((m) =>
+        m.getGatewayWebSocketUrl("h1", "1-abc", "tk"),
+      ),
+      "wss://gateway.example.test/api/v1/stream?hostId=h1&cursor=1-abc&ticket=tk",
+    );
+  } finally {
+    restoreWindow();
+  }
+});
+
+test("builds terminal WebSocket URLs with encoded session and ticket", async () => {
+  const restoreWindow = installWindow();
+  try {
+    const { getTerminalWebSocketUrl } = await import("./client.js");
+    assert.equal(
+      await getTerminalWebSocketUrl("sess 1"),
+      "wss://gateway.example.test/api/v1/terminal/sess%201",
+    );
+    assert.equal(
+      await getTerminalWebSocketUrl("sess/1", "tk+1"),
+      "wss://gateway.example.test/api/v1/terminal/sess%2F1?ticket=tk%2B1",
+    );
+  } finally {
+    restoreWindow();
+  }
+});
