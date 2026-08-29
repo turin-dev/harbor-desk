@@ -45,10 +45,12 @@ still change between minor versions.
 
 - `pnpm run smoke:live` runs a full-stack smoke
   (`scripts/live-gateway-smoke.mjs`) that boots the built gateway
-  in-process, registers the live Docker Engine, and cancels a running
-  image pull over HTTP, asserting the operation settles as `cancelled`
-  (202) while the host stays online. Engine and image are overrideable
-  via `SMOKE_ENDPOINT` / `SMOKE_IMAGE`.
+  in-process, registers the live Docker Engine, cancels a running
+  image pull over HTTP (asserting the operation settles as `cancelled`
+  (202) while the host stays online), then exercises the host re-probe,
+  capability matrix, and the full container lifecycle (create + start,
+  stop, start, force delete) over HTTP. Engine and pull target are
+  overrideable via `SMOKE_ENDPOINT` / `SMOKE_IMAGE`.
 
 - `pnpm run smoke:click` runs an Electron click-through smoke
   (`scripts/electron-click-smoke.mjs`) that seeds one stopped container

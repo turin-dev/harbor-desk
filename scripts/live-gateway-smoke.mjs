@@ -9,6 +9,8 @@
 // Docker Desktop (Windows) by default; override the Engine with
 // SMOKE_ENDPOINT (unix:///var/run/docker.sock or http://host:2375)
 // and the pull target with SMOKE_IMAGE (default postgres:16, chosen
+// Afterwards it exercises the host re-probe, capability matrix, and the
+// container lifecycle actions (create, stop, start, delete) over HTTP.
 // for a large image so the pull is reliably in-flight).
 
 import { randomUUID } from "node:crypto";
@@ -27,6 +29,18 @@ function check(name, ok, detail) {
 function skip(name, detail) {
   results.push({ name, ok: true });
   console.log("SKIP  " + name + (detail ? "  (" + detail + ")" : ""));
+}
+async function pollOperation(app, operationId, attempts = 400) {
+  let status = null;
+  for (let i = 0; i < attempts && status === null; i += 1) {
+    const polled = await app.inject({
+      method: "GET",
+      url: "/api/v1/operations/" + operationId,
+    });
+    if (polled.statusCode === 200) status = polled.json().data.status;
+    else await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return status;
 }
 
 const config = {
@@ -117,6 +131,106 @@ try {
         pullResponse.statusCode,
     );
   }
+
+  const seedPull = randomUUID();
+  const seed = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/images/pull",
+    headers: { "operation-id": seedPull },
+    payload: { image: "alpine:3.20" },
+  });
+  const seedStatus = await pollOperation(harbor.app, seedPull);
+  check(
+    "small image available for the container lifecycle (pulled if needed)",
+    seed.statusCode === 202 && seedStatus === "succeeded",
+    "http=" + seed.statusCode + ", op=" + seedStatus,
+  );
+
+  const testRes = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/test",
+  });
+  check(
+    "host re-probe (test) reports the Engine online",
+    testRes.statusCode === 200 && testRes.json().data.status === "online",
+    "http=" + testRes.statusCode,
+  );
+
+  const caps = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts/" + hostId + "/capabilities",
+  });
+  check(
+    "capability matrix reports container support",
+    caps.statusCode === 200 && caps.json().data?.containers === true,
+    "http=" + caps.statusCode,
+  );
+
+  const containerName = "harbor-live-smoke-" + randomUUID().slice(0, 8);
+  const create = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/containers",
+    payload: { image: "alpine:3.20", name: containerName, command: "sleep 30" },
+  });
+  check(
+    "container create+start settles as a succeeded operation",
+    create.statusCode === 202 && create.json().data.status === "succeeded",
+    "http=" + create.statusCode + ", op=" + create.json().data?.status,
+  );
+
+  let created = null;
+  for (let i = 0; i < 40 && !created; i += 1) {
+    const list = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/hosts/" + hostId + "/containers",
+    });
+    created = (list.json().data ?? []).find(
+      (row) => row.name === containerName,
+    );
+    if (!created) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  check("created container is listed", created !== null, containerName);
+
+  const stopOp = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/stop",
+  });
+  check(
+    "stop action returns a succeeded operation",
+    stopOp.statusCode === 202 && stopOp.json().data.status === "succeeded",
+    "op=" + stopOp.json().data?.status,
+  );
+
+  const startOp = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/start",
+  });
+  check(
+    "start action returns a succeeded operation",
+    startOp.statusCode === 202 && startOp.json().data.status === "succeeded",
+    "op=" + startOp.json().data?.status,
+  );
+
+  const delOp = await harbor.app.inject({
+    method: "DELETE",
+    url:
+      "/api/v1/hosts/" + hostId + "/containers/" + created.id + "?force=true",
+  });
+  check(
+    "container delete returns a succeeded operation",
+    delOp.statusCode === 202 && delOp.json().data.status === "succeeded",
+    "op=" + delOp.json().data?.status,
+  );
+
+  const listAfter = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts/" + hostId + "/containers",
+  });
+  check(
+    "deleted container is gone from the list",
+    !(listAfter.json().data ?? []).some((row) => row.name === containerName),
+    containerName,
+  );
 
   const hosts = await harbor.app.inject({
     method: "GET",
