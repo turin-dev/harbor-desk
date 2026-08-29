@@ -10,7 +10,7 @@ import {
   Tray,
 } from "electron";
 import { Buffer } from "node:buffer";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -20,6 +20,12 @@ import {
   parseStoredConnectionTarget,
   type ConnectionStatus,
 } from "./connection-manager.js";
+import {
+  OIDC_REDIRECT_URI,
+  buildAuthorizeUrl,
+  isValidProviderId,
+  parseAuthCallback,
+} from "./auth-login.js";
 import { parseConnectionInput } from "./connection-input.js";
 import {
   checkForUpdates,
@@ -246,7 +252,7 @@ async function exchangeAuthToken(input: {
     },
     body: JSON.stringify({
       ...input,
-      redirectUri: "harbor-desk://auth/callback",
+      redirectUri: OIDC_REDIRECT_URI,
     }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -270,46 +276,30 @@ async function exchangeAuthToken(input: {
 }
 
 async function startLogin(providerId: string): Promise<boolean> {
-  if (!/^[a-zA-Z0-9._-]{1,128}$/.test(providerId)) return false;
+  if (!isValidProviderId(providerId)) return false;
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(32).toString("base64url");
   const nonce = randomBytes(32).toString("base64url");
-  const codeChallenge = createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
-  const authorize = new URL(
-    `/api/v1/auth/authorize/${encodeURIComponent(providerId)}`,
-    requiredGatewayUrl(),
-  );
-  authorize.searchParams.set("redirectUri", "harbor-desk://auth/callback");
-  authorize.searchParams.set("state", state);
-  authorize.searchParams.set("nonce", nonce);
-  authorize.searchParams.set("codeChallenge", codeChallenge);
+  const authorize = buildAuthorizeUrl(requiredGatewayUrl(), providerId, {
+    verifier,
+    state,
+    nonce,
+  });
   pendingLogin = { providerId, state, nonce, verifier };
-  await shell.openExternal(authorize.toString());
+  await shell.openExternal(authorize);
   return true;
 }
 
 async function handleAuthCallback(rawUrl: string): Promise<void> {
-  let callback: URL;
-  try {
-    callback = new URL(rawUrl);
-  } catch {
-    return;
-  }
-  if (
-    callback.protocol !== "harbor-desk:" ||
-    callback.hostname !== "auth" ||
-    callback.pathname !== "/callback"
-  )
-    return;
+  const parsed = parseAuthCallback(rawUrl);
+  if (!parsed) return;
   const pending = pendingLogin;
   pendingLogin = undefined;
-  if (!pending || callback.searchParams.get("state") !== pending.state) {
+  if (!pending || parsed.state !== pending.state) {
     notifyAuthChanged();
     return;
   }
-  const code = callback.searchParams.get("code");
+  const code = parsed.code;
   if (!code) {
     notifyAuthChanged();
     return;
