@@ -59,13 +59,13 @@ export function renderReleaseNotes({
     const channel = registryHasPreviewRelease
       ? ` under the \`preview\` dist-tag (the default \`latest\` dist-tag is unchanged)`
       : "";
-    npmStatus = `The npm registry provides \`${releaseTag}\`${channel}. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpx --yes harbor-desk@${normalizedVersion} --version\n\`\`\``;
+    npmStatus = `The npm registry provides \`${releaseTag}\`${channel}. To run that exact version instead of following the latest dist-tag:\n\n\`\`\`bash\nnpm exec --yes harbor-desk@${normalizedVersion} -- --version\n\`\`\``;
   } else {
     const registryDetail = npmLatestVersion.trim()
-      ? `At release time, the npm registry's latest version was \`v${npmLatestVersion.trim().replace(/^v/, "")}\`, so an unpinned \`npx --yes harbor-desk\` command will not fetch \`${releaseTag}\`.`
+      ? `At release time, the npm registry's latest version was \`v${npmLatestVersion.trim().replace(/^v/, "")}\`, so an unpinned \`npm exec --yes harbor-desk\` command will not fetch \`${releaseTag}\`.`
       : `The release workflow could not confirm that \`${releaseTag}\` was available from the npm registry.`;
 
-    npmStatus = `${registryDetail}\n\nAfter downloading and verifying the attached tarball, run it explicitly:\n\n\`\`\`bash\nnpx --yes --package ./${tarball} harbor-desk --version\n\`\`\``;
+    npmStatus = `${registryDetail}\n\nAfter downloading and verifying the attached tarball, run it explicitly:\n\n\`\`\`bash\nnpm exec --yes --package ./${tarball} -- harbor-desk --version\n\`\`\``;
   }
 
   return `## Harbor Desk ${releaseTag} preview

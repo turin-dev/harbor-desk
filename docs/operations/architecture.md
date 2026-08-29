@@ -27,7 +27,7 @@ not a replacement for user authentication or process isolation.
 
 ## Standalone server preview
 
-The optional `npx harbor-desk install-server` flow copies a minimal gateway
+The optional `npm exec --yes harbor-desk -- install-server` flow copies a minimal gateway
 payload to a user-selected empty directory and runs it with either the
 server-local Engine overlay or the remote-Engine mTLS overlay. The default
 published port binds to exact loopback and uses development authentication.

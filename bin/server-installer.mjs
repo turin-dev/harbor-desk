@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import net from "node:net";
-import { createInterface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +21,7 @@ const defaultProjectName = "harbor-desk-server";
 const defaultEngineName = "Server local Docker Engine";
 const defaultBindHost = "127.0.0.1";
 const defaultAuthMode = "dev";
+const defaultInstallDirectoryName = "harbor-desk-server";
 const defaultAllowedOrigins = Object.freeze([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -135,13 +136,6 @@ function parseAuthMode(value) {
     throw new ServerInstallerError("--auth-mode must be either dev or oidc.");
   }
   return value;
-}
-
-function parseBooleanAnswer(value, option) {
-  const normalized = value.trim().toLowerCase();
-  if (["y", "yes", "true", "1"].includes(normalized)) return true;
-  if (["n", "no", "false", "0", ""].includes(normalized)) return false;
-  throw new ServerInstallerError(option + " expects yes or no.");
 }
 
 function parseAllowedOrigin(value) {
@@ -483,8 +477,14 @@ export function serverInstallerUsage() {
     "Install the Harbor Desk preview gateway on a controlled Linux, Windows, or macOS Docker host.",
     "",
     "Usage:",
-    "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
-    "  npx --yes harbor-desk install-server -AI",
+    "  npm exec --yes harbor-desk",
+    "  npm exec --yes harbor-desk -- install",
+    "  npm exec --yes harbor-desk -- install-server",
+    "  npm exec --yes harbor-desk -- install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
+    "  npm exec --yes harbor-desk -- install-server -AI",
+    "",
+    "The first three forms open a keyboard-driven TUI when stdin and stdout are a TTY;",
+    "run them from an interactive SSH session. They do not open a browser on the server.",
     "",
     "Options:",
     "  --directory <path>              Required empty destination directory.",
@@ -1154,28 +1154,31 @@ export function serverInstallerAiContext() {
         "This context is stable JSON for an AI or automation client. It does not inspect Docker, write files, or start containers.",
       interaction: {
         interactive: {
-          trigger: "Run install-server with no arguments from a TTY.",
+          trigger:
+            "Run harbor-desk or install-server with no arguments from an interactive SSH TTY.",
+          interface: "Keyboard-driven TUI; no browser is opened on the server.",
           prompts: [
-            "destination directory",
-            "gateway port",
-            "local or public network binding",
-            "dev or OIDC authentication",
-            "OIDC provider JSON file when OIDC is selected",
-            "additional browser origins",
+            "destination directory (safe default)",
             "local Docker socket or remote Engine mTLS connection",
+            "gateway port (default 4311)",
+            "local/SSH tunnel or network binding",
+            "dev or OIDC authentication when local binding is selected",
+            "OIDC provider JSON file when OIDC is selected",
+            "allowed client origins when public binding is selected",
+            "remote Engine mTLS paths when remote mode is selected",
             "explicit acknowledgement for the server Docker socket mount when local mode is selected",
           ],
           nonTtyBehavior:
-            "Fails with usage guidance instead of waiting for stdin indefinitely.",
+            "Fails with SSH TTY guidance instead of waiting for stdin indefinitely.",
         },
         nonInteractive: {
           trigger: "Pass explicit options to install-server.",
           localExample:
-            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
+            "npm exec --yes harbor-desk -- install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
           publicExample:
-            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-public --public --auth-mode oidc --oidc-providers-file ./oidc-providers.json --allowed-origin https://client.example.com --allow-local-engine-socket",
+            "npm exec --yes harbor-desk -- install-server --directory /srv/harbor-desk-public --public --auth-mode oidc --oidc-providers-file ./oidc-providers.json --allowed-origin https://client.example.com --allow-local-engine-socket",
           remoteMtlsExample:
-            "npx --yes harbor-desk install-server --directory /srv/harbor-desk-remote --engine-endpoint https://engine.example.com:2376 --engine-ca-file ./engine-ca.pem --engine-cert-file ./engine-client-cert.pem --engine-key-file ./engine-client-key.pem",
+            "npm exec --yes harbor-desk -- install-server --directory /srv/harbor-desk-remote --engine-endpoint https://engine.example.com:2376 --engine-ca-file ./engine-ca.pem --engine-cert-file ./engine-client-cert.pem --engine-key-file ./engine-client-key.pem",
           contextFlags: ["-AI", "--ai-context"],
         },
       },
@@ -1267,131 +1270,363 @@ export function serverInstallerAiContext() {
   );
 }
 
-async function promptServerInstallArguments({
-  stdin,
-  stdout,
-  createReadlineInterface,
-}) {
-  const readline = createReadlineInterface({ input: stdin, output: stdout });
-  const ask = (question) => readline.question(question);
+function defaultInstallDirectory(cwd) {
+  return join(cwd, defaultInstallDirectoryName);
+}
 
+function tuiKeyName(sequence, key) {
+  if (key?.name) return key.name;
+
+  return {
+    "\r": "return",
+    "\n": "return",
+    "\u0003": "c",
+    "\u001b": "escape",
+    "\u001b[A": "up",
+    "\u001b[B": "down",
+    "\u007f": "backspace",
+  }[sequence];
+}
+
+function isTuiCancel(sequence, key) {
+  return Boolean(key?.ctrl && key.name === "c") || sequence === "\u0003";
+}
+
+function isPrintableTuiInput(sequence, key) {
+  return Boolean(
+    sequence &&
+    !key?.ctrl &&
+    !key?.meta &&
+    !/[\u0000-\u001f\u007f]/u.test(sequence),
+  );
+}
+
+function createTuiKeyReader(stdin) {
+  emitKeypressEvents(stdin);
+
+  const canSetRawMode =
+    Boolean(stdin.isTTY) && typeof stdin.setRawMode === "function";
+  const wasRaw = stdin.isRaw;
+  if (canSetRawMode) stdin.setRawMode(true);
+  stdin.resume();
+
+  return {
+    next() {
+      return new Promise((resolvePromise) => {
+        stdin.once("keypress", (sequence, key) => {
+          resolvePromise({ sequence: sequence ?? "", key: key ?? {} });
+        });
+      });
+    },
+    close() {
+      if (canSetRawMode) stdin.setRawMode(wasRaw ?? false);
+      stdin.pause();
+    },
+  };
+}
+
+function writeTuiFrame(stdout, lines) {
+  stdout.write(`\u001b[2J\u001b[H${lines.join("\n")}\n`);
+}
+
+function tuiLines(value) {
+  return String(value ?? "")
+    .split("\n")
+    .map((line) => line.trimEnd());
+}
+
+function createTuiUi({ reader, stdout }) {
+  const render = (title, body, help, error) => {
+    writeTuiFrame(stdout, [
+      "Harbor Desk server setup",
+      "========================",
+      "",
+      title,
+      "",
+      ...body,
+      "",
+      ...tuiLines(help),
+      ...(error ? ["", `Error: ${error}`] : []),
+    ]);
+  };
+
+  const readKey = async () => {
+    const input = await reader.next();
+    if (isTuiCancel(input.sequence, input.key)) {
+      throw new ServerInstallerError("Setup cancelled; no files were changed.");
+    }
+    return input;
+  };
+
+  return {
+    async select({ title, options, defaultValue, help = "" }) {
+      if (!Array.isArray(options) || options.length === 0) {
+        throw new ServerInstallerError(`TUI field ${title} has no options.`);
+      }
+
+      const defaultIndex = options.findIndex(
+        (option) => option.value === defaultValue,
+      );
+      let selected = defaultIndex >= 0 ? defaultIndex : 0;
+
+      for (;;) {
+        render(
+          title,
+          options.map((option, index) => {
+            const marker = index === selected ? ">" : " ";
+            return `  ${marker} ${option.label}`;
+          }),
+          `${help}${help ? "\n" : ""}↑/↓ or j/k to move · Enter to select · Ctrl+C to cancel`,
+        );
+
+        const { sequence, key } = await readKey();
+        const name = tuiKeyName(sequence, key);
+        if (name === "up" || sequence === "k") {
+          selected = (selected - 1 + options.length) % options.length;
+        } else if (name === "down" || sequence === "j") {
+          selected = (selected + 1) % options.length;
+        } else if (/^[1-9]$/u.test(sequence)) {
+          const numericIndex = Number(sequence) - 1;
+          if (numericIndex < options.length) selected = numericIndex;
+        } else if (name === "return" || sequence === " ") {
+          return options[selected].value;
+        }
+      }
+    },
+
+    async text({ title, defaultValue = "", required = false, help = "" }) {
+      let edited = false;
+      let value = "";
+      let error;
+
+      for (;;) {
+        const displayed = edited ? value : defaultValue;
+        render(
+          title,
+          [`  > ${displayed}`],
+          `${help}${help ? "\n" : ""}Enter to accept · Backspace to edit · Ctrl+C to cancel`,
+          error,
+        );
+        error = undefined;
+
+        const { sequence, key } = await readKey();
+        const name = tuiKeyName(sequence, key);
+        if (name === "return") {
+          const result = (edited ? value : defaultValue).trim();
+          if (required && !result) {
+            error = "A value is required.";
+            continue;
+          }
+          return result;
+        }
+        if (name === "backspace") {
+          if (!edited) {
+            edited = true;
+            value = "";
+          } else {
+            value = value.slice(0, -1);
+          }
+          continue;
+        }
+        if (isPrintableTuiInput(sequence, key)) {
+          if (!edited) {
+            edited = true;
+            value = "";
+          }
+          value += sequence;
+        }
+      }
+    },
+
+    async confirm({ title, defaultValue = false, help = "" }) {
+      return this.select({
+        title,
+        help,
+        options: [
+          { label: "No", value: false },
+          { label: "Yes", value: true },
+        ],
+        defaultValue,
+      });
+    },
+  };
+}
+
+export function formatServerInstallerTuiSummary(options) {
+  return [
+    `Install directory: ${options.directory}`,
+    `Gateway binding: ${options.bindHost}:${options.port}`,
+    `Authentication: ${options.authMode}`,
+    `Docker connection: ${options.engineEndpoint ?? options.engineSocket}`,
+    ...(options.engineEndpoint
+      ? ["Engine credentials: server-side mTLS files (paths stay on this host)"]
+      : ["Docker socket: mounted into the gateway container"]),
+    "",
+    formatServerInstallerConnectionInfo(options),
+  ].join("\n");
+}
+
+export function formatServerInstallerConnectionInfo(options) {
+  const isPublic = options.bindHost === "0.0.0.0";
+  const gateway = `http://${isPublic ? "<server-address>" : "127.0.0.1"}:${options.port}`;
+
+  return [
+    "Connection information",
+    `  Gateway: ${gateway}`,
+    `  WebSocket: ${gateway.replace(/^http/i, "ws")}`,
+    ...(isPublic
+      ? [
+          "  Public mode: put this behind an HTTPS reverse proxy.",
+          "  Client URL after TLS: https://<your-domain>",
+          "  WebSocket after TLS: wss://<your-domain>",
+        ]
+      : [
+          `  SSH tunnel: ssh -N -L ${options.port}:127.0.0.1:${options.port} <user>@<server>`,
+          `  Desktop URL after tunnel: http://127.0.0.1:${options.port}`,
+        ]),
+  ].join("\n");
+}
+
+export async function collectServerInstallArguments({
+  cwd = process.cwd(),
+  ui,
+} = {}) {
+  if (!ui || typeof ui.text !== "function" || typeof ui.select !== "function") {
+    throw new TypeError("A TUI input object is required.");
+  }
+
+  const directory = await ui.text({
+    title: "Install directory",
+    defaultValue: defaultInstallDirectory(cwd),
+    required: true,
+    help: "Press Enter to use the safe per-directory default.",
+  });
+  const engineMode = await ui.select({
+    title: "Docker Engine connection",
+    options: [
+      { label: "This server's Docker socket (recommended)", value: "local" },
+      { label: "Remote Docker Engine over HTTPS + mTLS", value: "remote" },
+    ],
+    defaultValue: "local",
+    help: "The Docker socket and Engine credentials stay on the server.",
+  });
+  const port = await ui.text({
+    title: "Gateway port",
+    defaultValue: String(defaultPort),
+    required: true,
+  });
+  const exposure = await ui.select({
+    title: "Network binding",
+    options: [
+      { label: "Local/SSH tunnel only (recommended)", value: "local" },
+      {
+        label: "Network reachable (requires OIDC + HTTPS proxy)",
+        value: "public",
+      },
+    ],
+    defaultValue: "local",
+    help: "Local mode binds only to 127.0.0.1.",
+  });
+  const isPublic = exposure === "public";
+  const authMode = isPublic
+    ? "oidc"
+    : await ui.select({
+        title: "Authentication",
+        options: [
+          { label: "Development login (local only)", value: "dev" },
+          { label: "OIDC provider", value: "oidc" },
+        ],
+        defaultValue: defaultAuthMode,
+      });
+
+  const arguments_ = ["--directory", directory, "--port", port];
+  if (isPublic) arguments_.push("--public");
+  if (authMode !== defaultAuthMode) arguments_.push("--auth-mode", authMode);
+
+  if (authMode === "oidc") {
+    const providersFile = await ui.text({
+      title: "OIDC provider JSON file",
+      required: true,
+      help: "Enter the path to the provider configuration on this server.",
+    });
+    arguments_.push("--oidc-providers-file", providersFile);
+  }
+
+  if (isPublic) {
+    const allowedOrigins = await ui.text({
+      title: "Allowed client origins",
+      required: true,
+      help: "Comma-separated HTTPS origins, for example https://desk.example.com.",
+    });
+    arguments_.push("--allowed-origin", allowedOrigins);
+  }
+
+  if (engineMode === "remote") {
+    const endpoint = await ui.text({
+      title: "Remote HTTPS Engine endpoint",
+      required: true,
+      help: "Example: https://docker.example.com:2376",
+    });
+    const caFile = await ui.text({
+      title: "Engine CA certificate path",
+      required: true,
+    });
+    const certFile = await ui.text({
+      title: "Engine client certificate path",
+      required: true,
+    });
+    const keyFile = await ui.text({
+      title: "Engine client private key path",
+      required: true,
+    });
+    arguments_.push(
+      "--engine-endpoint",
+      endpoint,
+      "--engine-ca-file",
+      caFile,
+      "--engine-cert-file",
+      certFile,
+      "--engine-key-file",
+      keyFile,
+    );
+  } else {
+    const acknowledged = await ui.confirm({
+      title: "Allow Harbor Desk to mount the server Docker socket?",
+      defaultValue: false,
+      help: "The socket grants highly privileged Docker control. Choose Yes only if this server is trusted.",
+    });
+    if (!acknowledged) {
+      throw new ServerInstallerError(
+        "The server Docker socket mount was not acknowledged; installation stopped.",
+      );
+    }
+    arguments_.push("--allow-local-engine-socket");
+  }
+
+  const options = parseServerInstallArgs(arguments_, { cwd });
+  const confirmed = await ui.confirm({
+    title: "Install Harbor Desk with this configuration?",
+    defaultValue: true,
+    help: formatServerInstallerTuiSummary(options),
+  });
+  if (!confirmed) {
+    throw new ServerInstallerError("Setup cancelled; no files were changed.");
+  }
+
+  return arguments_;
+}
+
+async function promptServerInstallTui({ stdin, stdout, cwd }) {
+  const reader = createTuiKeyReader(stdin);
+  stdout.write("\u001b[?25l");
   try {
-    const directory = (await ask("Install directory (required): ")).trim();
-    if (!directory) {
-      throw new ServerInstallerError(
-        "An install directory is required. Run again and enter a destination directory.",
-      );
-    }
-
-    const port = (await ask(`Gateway port [${defaultPort}]: `)).trim();
-    const exposure = (await ask("Network binding (local/public) [local]: "))
-      .trim()
-      .toLowerCase();
-    if (exposure && !["local", "loopback", "public"].includes(exposure)) {
-      throw new ServerInstallerError(
-        "Network binding must be local or public.",
-      );
-    }
-    const isPublic = exposure === "public";
-    const defaultMode = isPublic ? "oidc" : defaultAuthMode;
-    const modeAnswer = (
-      await ask(`Authentication mode (dev/oidc) [${defaultMode}]: `)
-    )
-      .trim()
-      .toLowerCase();
-    const authMode = modeAnswer || defaultMode;
-    parseAuthMode(authMode);
-
-    const arguments_ = ["--directory", directory];
-    if (port) arguments_.push("--port", port);
-    if (isPublic) arguments_.push("--public");
-    if (authMode !== defaultAuthMode) {
-      arguments_.push("--auth-mode", authMode);
-    }
-
-    if (authMode === "oidc") {
-      const providersFile = (
-        await ask("OIDC provider JSON file (required): ")
-      ).trim();
-      if (!providersFile) {
-        throw new ServerInstallerError(
-          "An OIDC provider JSON file is required for OIDC authentication.",
-        );
-      }
-      arguments_.push("--oidc-providers-file", providersFile);
-    }
-
-    const allowedOrigins = (
-      await ask(
-        "Additional browser origins (comma-separated, blank keeps local defaults): ",
-      )
-    ).trim();
-    if (allowedOrigins) {
-      arguments_.push("--allowed-origin", allowedOrigins);
-    }
-
-    const engineMode = (
-      await ask("Docker Engine connection (local socket/remote mTLS) [local]: ")
-    )
-      .trim()
-      .toLowerCase();
-    if (
-      engineMode &&
-      !["local", "loopback", "socket", "remote", "mtls"].includes(engineMode)
-    ) {
-      throw new ServerInstallerError(
-        "Docker Engine connection must be local socket or remote mTLS.",
-      );
-    }
-
-    if (["remote", "mtls"].includes(engineMode)) {
-      const endpoint = (
-        await ask("Remote HTTPS Engine endpoint (required): ")
-      ).trim();
-      const caFile = (
-        await ask("Engine CA certificate file (required): ")
-      ).trim();
-      const certFile = (
-        await ask("Engine client certificate file (required): ")
-      ).trim();
-      const keyFile = (
-        await ask("Engine client private key file (required): ")
-      ).trim();
-      if (!endpoint || !caFile || !certFile || !keyFile) {
-        throw new ServerInstallerError(
-          "Remote Engine mTLS mode requires an endpoint, CA certificate, client certificate, and client private key file.",
-        );
-      }
-      arguments_.push(
-        "--engine-endpoint",
-        endpoint,
-        "--engine-ca-file",
-        caFile,
-        "--engine-cert-file",
-        certFile,
-        "--engine-key-file",
-        keyFile,
-      );
-    } else {
-      const socketAcknowledgement = await ask(
-        "Mount the server Docker socket into the gateway? Type yes to acknowledge the privilege: ",
-      );
-      if (
-        !parseBooleanAnswer(
-          socketAcknowledgement,
-          "Docker socket acknowledgement",
-        )
-      ) {
-        throw new ServerInstallerError(
-          "The server Docker socket mount was not acknowledged; installation stopped.",
-        );
-      }
-      arguments_.push("--allow-local-engine-socket");
-    }
-
-    return arguments_;
+    return await collectServerInstallArguments({
+      cwd,
+      ui: createTuiUi({ reader, stdout }),
+    });
   } finally {
-    readline.close();
+    reader.close();
+    stdout.write("\u001b[?25h\n");
   }
 }
 
@@ -1401,7 +1636,6 @@ export async function runServerInstaller(
     cwd = process.cwd(),
     stdin = process.stdin,
     stdout = process.stdout,
-    createReadlineInterface = createInterface,
     ...dependencies
   } = {},
 ) {
@@ -1414,13 +1648,13 @@ export async function runServerInstaller(
   if (installArguments.length === 0) {
     if (!stdin.isTTY || !stdout.isTTY) {
       throw new ServerInstallerError(
-        "install-server needs explicit options in non-interactive mode. Provide --directory and --allow-local-engine-socket, or use -AI for machine-readable setup context.",
+        "Interactive setup requires a TTY. Run this command from an interactive SSH session, or provide explicit install-server options for automation.",
       );
     }
-    installArguments = await promptServerInstallArguments({
+    installArguments = await promptServerInstallTui({
       stdin,
       stdout,
-      createReadlineInterface,
+      cwd,
     });
   }
 
@@ -1437,6 +1671,7 @@ export async function runServerInstaller(
     stdout.write(
       `Installed Harbor Desk preview gateway. Health: ${result.plan.healthUrl}\n`,
     );
+    stdout.write(`${formatServerInstallerConnectionInfo(result.plan)}\n`);
   } else {
     stdout.write("Dry run passed. No files or containers were changed.\n");
   }

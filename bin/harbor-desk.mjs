@@ -10,24 +10,26 @@ import {
 
 const sourceUrl = "https://github.com/turin-dev/harbor-desk";
 const releasesUrl = `${sourceUrl}/releases`;
-const installGuideUrl = `${sourceUrl}/blob/main/README.md#server-local-engine-overlay`;
+const installGuideUrl = `${sourceUrl}/blob/main/README.md#npm-server-setup`;
 
 function usage() {
   return [
-    "Harbor Desk npx bootstrap",
+    "Harbor Desk server setup",
     "",
     "Usage:",
-    "  npx --yes harbor-desk",
-    "  npx --yes harbor-desk --open-release",
-    "  npx --yes harbor-desk --open-source",
-    "  npx --yes harbor-desk --version",
-    "  npx --yes harbor-desk -AI",
-    "  npx --yes harbor-desk install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
+    "  npm exec --yes harbor-desk",
+    "  npm exec --yes harbor-desk -- install",
+    "  npm exec --yes harbor-desk -- install-server",
+    "  npm exec --yes harbor-desk -- --open-release",
+    "  npm exec --yes harbor-desk -- --open-source",
+    "  npm exec --yes harbor-desk -- --version",
+    "  npm exec --yes harbor-desk -- -AI",
+    "  npm exec --yes harbor-desk -- install-server --directory /srv/harbor-desk-preview --allow-local-engine-socket",
     "",
-    "This bootstrap command does not install or launch the Electron desktop app.",
-    "It does not access Docker Desktop, a local Docker socket, Docker CLI, or a Docker daemon.",
-    "The explicit install-server command installs a local or public preview gateway on",
-    "a controlled Linux, Windows, or macOS Docker host; public binding requires OIDC.",
+    "Run the default command from an interactive SSH session to open the keyboard-driven",
+    "server setup wizard. It detects the local Docker socket, validates the connection,",
+    "and prints the SSH tunnel or Gateway connection information when installation finishes.",
+    "Use explicit install-server options for CI and other non-interactive environments.",
     "",
     `Source: ${sourceUrl}`,
     `Releases: ${releasesUrl}`,
@@ -60,13 +62,22 @@ function openUrl(url) {
 
 const [argument, ...extraArguments] = process.argv.slice(2);
 
-if (argument === "install-server") {
+if (argument === "install" || argument === "install-server" || !argument) {
   try {
     await runServerInstaller(extraArguments);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n\n${serverInstallerUsage()}\n`);
-    process.exitCode = 1;
+    const interactiveSetup =
+      extraArguments.length === 0 &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY;
+    if (interactiveSetup || message.startsWith("Setup cancelled;")) {
+      process.stderr.write(`${message}\n`);
+      process.exitCode = message.startsWith("Setup cancelled;") ? 130 : 1;
+    } else {
+      process.stderr.write(`${message}\n\n${serverInstallerUsage()}\n`);
+      process.exitCode = 1;
+    }
   }
 } else if (extraArguments.length > 0) {
   process.stderr.write(
@@ -74,7 +85,7 @@ if (argument === "install-server") {
   );
   process.stderr.write(`${usage()}\n`);
   process.exitCode = 1;
-} else if (!argument || argument === "--help" || argument === "-h") {
+} else if (argument === "--help" || argument === "-h") {
   process.stdout.write(`${usage()}\n`);
 } else if (argument === "--version" || argument === "-v") {
   process.stdout.write(`${await packageVersion()}\n`);

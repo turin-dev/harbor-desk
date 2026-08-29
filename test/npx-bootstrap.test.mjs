@@ -12,7 +12,10 @@ import {
 } from "../scripts/generate-release-notes.mjs";
 import {
   buildServerInstallPlan,
+  collectServerInstallArguments,
   formatServerInstallPlan,
+  formatServerInstallerConnectionInfo,
+  formatServerInstallerTuiSummary,
   installServer,
   parseServerInstallArgs,
   runServerInstaller,
@@ -46,20 +49,12 @@ function runCli(...arguments_) {
   });
 }
 
-test("prints the safe npx bootstrap contract by default", () => {
+test("requires an interactive SSH TTY for the default server setup", () => {
   const result = runCli();
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Harbor Desk npx bootstrap/);
-  assert.match(
-    result.stdout,
-    /does not access Docker Desktop, a local Docker socket/,
-  );
-  assert.match(
-    result.stdout,
-    /https:\/\/github\.com\/turin-dev\/harbor-desk\/releases/,
-  );
-  assert.match(result.stdout, /install-server --directory/);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Interactive setup requires a TTY/);
+  assert.match(result.stderr, /interactive SSH session/);
 });
 
 test("reports the package manifest version", async () => {
@@ -110,7 +105,7 @@ test("rejects unknown arguments without performing an action", () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown argument: --not-a-command/);
-  assert.match(result.stderr, /Harbor Desk npx bootstrap/);
+  assert.match(result.stderr, /Harbor Desk server setup/);
 });
 
 test("documents the explicit preview server installer without hiding socket risk", () => {
@@ -304,7 +299,126 @@ test("does not wait for input when install-server has no TTY", async () => {
         stdin: { isTTY: false },
         stdout: { isTTY: false, write() {} },
       }),
-    /explicit options in non-interactive mode/,
+    /Interactive setup requires a TTY/,
+  );
+});
+
+test("collects the safe local Docker setup through the TUI contract", async () => {
+  const cwd = resolve(process.cwd(), "tui-local");
+  const selections = {
+    "Docker Engine connection": "local",
+    "Network binding": "local",
+    Authentication: "dev",
+  };
+  const confirms = [];
+  const ui = {
+    async text(field) {
+      return field.defaultValue ?? "";
+    },
+    async select(field) {
+      return selections[field.title] ?? field.options[0].value;
+    },
+    async confirm(field) {
+      confirms.push(field.title);
+      return true;
+    },
+  };
+
+  const arguments_ = await collectServerInstallArguments({ cwd, ui });
+
+  assert.deepEqual(arguments_, [
+    "--directory",
+    join(cwd, "harbor-desk-server"),
+    "--port",
+    "4311",
+    "--allow-local-engine-socket",
+  ]);
+  assert.deepEqual(confirms, [
+    "Allow Harbor Desk to mount the server Docker socket?",
+    "Install Harbor Desk with this configuration?",
+  ]);
+});
+
+test("collects remote Engine mTLS details through the TUI contract", async () => {
+  const cwd = resolve(process.cwd(), "tui-remote");
+  const textValues = {
+    "Install directory": join(cwd, "gateway"),
+    "Gateway port": "4312",
+    "Remote HTTPS Engine endpoint": "https://docker.example.com:2376",
+    "Engine CA certificate path": "./ca.pem",
+    "Engine client certificate path": "./client-cert.pem",
+    "Engine client private key path": "./client-key.pem",
+  };
+  const selections = {
+    "Docker Engine connection": "remote",
+    "Network binding": "local",
+    Authentication: "dev",
+  };
+  const ui = {
+    async text(field) {
+      return textValues[field.title] ?? field.defaultValue ?? "";
+    },
+    async select(field) {
+      return selections[field.title] ?? field.options[0].value;
+    },
+    async confirm() {
+      return true;
+    },
+  };
+
+  const arguments_ = await collectServerInstallArguments({ cwd, ui });
+
+  assert.deepEqual(arguments_, [
+    "--directory",
+    join(cwd, "gateway"),
+    "--port",
+    "4312",
+    "--engine-endpoint",
+    "https://docker.example.com:2376",
+    "--engine-ca-file",
+    "./ca.pem",
+    "--engine-cert-file",
+    "./client-cert.pem",
+    "--engine-key-file",
+    "./client-key.pem",
+  ]);
+});
+
+test("prints SSH and WSS-aware connection information", () => {
+  const local = parseServerInstallArgs(
+    [
+      "--directory",
+      "./gateway",
+      "--port",
+      "4312",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+  const publicOptions = parseServerInstallArgs(
+    [
+      "--directory",
+      "./gateway-public",
+      "--public",
+      "--auth-mode",
+      "oidc",
+      "--oidc-providers-file",
+      "./oidc.json",
+      "--allowed-origin",
+      "https://desk.example.com",
+      "--allow-local-engine-socket",
+    ],
+    { cwd: process.cwd() },
+  );
+
+  assert.match(formatServerInstallerConnectionInfo(local), /ssh -N -L 4312/);
+  assert.match(
+    formatServerInstallerTuiSummary(local),
+    /Desktop URL after tunnel/,
+  );
+  assert.match(
+    formatServerInstallerConnectionInfo(publicOptions),
+    /wss:\/\/<your-domain>/,
   );
 });
 
@@ -974,9 +1088,9 @@ test("generates versioned release notes from the changelog and npm state", async
   assert.doesNotMatch(unpublished, /checksums for every attached asset/);
   assert.match(
     unpublished,
-    /npx --yes --package \.\/harbor-desk-0\.3\.1\.tgz harbor-desk --version/,
+    /npm exec --yes --package \.\/harbor-desk-0\.3\.1\.tgz -- harbor-desk --version/,
   );
-  assert.doesNotMatch(unpublished, /npx --yes harbor-desk@0\.3\.1/);
+  assert.doesNotMatch(unpublished, /npm exec --yes harbor-desk@0\.3\.1/);
 
   const published = renderReleaseNotes({
     version: "0.3.1",
@@ -988,7 +1102,7 @@ test("generates versioned release notes from the changelog and npm state", async
   assert.match(published, /npm registry provides `v0\.3\.1`/);
   assert.match(published, /under the `preview` dist-tag/);
   assert.match(published, /default `latest` dist-tag is unchanged/);
-  assert.match(published, /npx --yes harbor-desk@0\.3\.1 --version/);
+  assert.match(published, /npm exec --yes harbor-desk@0\.3\.1 -- --version/);
 });
 
 test("ships a branded assisted Windows installer without changing upgrade identity", async () => {

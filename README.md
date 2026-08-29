@@ -26,7 +26,7 @@ integration.
 ## Contents
 
 - [Current implementation](#current-implementation)
-- [npx bootstrap](#npx-bootstrap)
+- [npm server setup](#npm-server-setup)
 - [Supported platforms](#supported-platforms)
 - [Architecture and trust boundary](#architecture-and-trust-boundary)
 - [Getting started](#getting-started)
@@ -74,11 +74,11 @@ than fixture data or fake success. The desktop-managed preview gateway currently
 keeps host registrations, encrypted development secrets, and operations in
 memory, so they reset when the app fully quits.
 
-## npx bootstrap
+## npm server setup
 
 GitHub Release assets and the public npm registry are separate distribution
-channels. Check the registry before assuming an unpinned `npx` command matches
-the newest GitHub release:
+channels. Check the registry before assuming an unpinned `npm exec` command
+matches the newest GitHub release:
 
 ```powershell
 npm view harbor-desk version
@@ -90,8 +90,8 @@ under the `preview` dist-tag so an unpinned command does not unexpectedly move
 to a preview. To use an exact published preview version:
 
 ```powershell
-npm view harbor-desk@0.5.2 version
-npx --yes harbor-desk@0.5.2 --version
+npm view harbor-desk@0.5.3 version
+npm exec --yes harbor-desk@0.5.3 -- --version
 ```
 
 GitHub Release assets and npm packages are published separately. Each
@@ -101,55 +101,73 @@ the registry, download the matching `harbor-desk-<version>.tgz` and
 `SHA256SUMS` assets, verify the checksum, and invoke the tarball explicitly:
 
 ```powershell
-npx --yes --package ./harbor-desk-<version>.tgz harbor-desk --version
+npm exec --yes --package ./harbor-desk-<version>.tgz -- harbor-desk --version
 ```
 
-The registry-backed npm command can find the source, preview releases, and the
-server-side installation path:
+The registry-backed npm command is the server-side entry point. Run it inside an
+interactive SSH session on the Docker host:
 
 ```powershell
-npx --yes harbor-desk
-npx --yes harbor-desk --open-release
-npx --yes harbor-desk -AI
+npm exec --yes harbor-desk
+npm exec --yes harbor-desk -- install
+npm exec --yes harbor-desk -- install-server
+npm exec --yes harbor-desk -- --open-release
+npm exec --yes harbor-desk -- -AI
 ```
 
-The default command does **not** install or launch the Electron desktop
-application, download an unsigned Windows installer, access Docker Desktop,
-contact a local Docker socket, or start a Docker daemon. It is intentionally a
-safe entry point into the open-source preview while the desktop installer
-remains unsigned and the production control-plane dependencies are still
-incomplete.
+The default command, `install`, and `install-server` commands open the same
+keyboard-driven TUI when they are run with a TTY. No browser is opened on the
+server. Use arrow keys or `j`/`k`, press Enter to select, and press Ctrl+C to
+cancel. The wizard uses a safe directory and port default, detects the local
+Docker socket as the common path, lets you choose remote Engine mTLS when
+needed, validates the selected connection, and asks for confirmation before
+writing files or starting containers:
 
-### Optional dedicated server gateway
+```text
+Harbor Desk server setup
 
-The normal desktop flow does not require `install-server`: the client starts its
-own loopback gateway automatically. On a controlled Linux, Windows, or macOS
-Docker host, the explicit `install-server` command remains available for a
-dedicated external preview gateway. It copies the gateway source payload from
-the published npm package, creates a per-install server secret, builds the
-gateway, and starts it on a loopback or explicitly selected network binding. The
-command requires an empty target directory and refuses to overwrite an existing
-install or use an occupied port.
+Docker Engine connection
+  > This server's Docker socket (recommended)
+    Remote Docker Engine over HTTPS + mTLS
 
-Run the command without arguments from an interactive terminal to answer setup
-questions for the destination, port, binding, authentication, OIDC provider
-file, browser origins, and either a local Docker socket or a remote Engine mTLS
-connection. In CI, an SSH session without a TTY, or another automation context,
-pass every required option explicitly. `-AI` (also accepted as `--ai-context`)
-prints stable JSON describing the commands, defaults, platform support, and
-security boundary without reading Docker or touching the filesystem:
+↑/↓ or j/k to move · Enter to select · Ctrl+C to cancel
+```
+
+At the end it prints the connection details. In the default loopback mode this
+includes the SSH tunnel command and the client URL to use after opening the
+tunnel. The ordinary desktop client still does not access a local Docker
+socket; only the server-side Gateway does.
+
+If stdin or stdout is not a TTY, the command fails with SSH guidance instead
+of waiting for input. Use explicit `install-server` options for CI and other
+non-interactive environments. The command does not install or launch the
+Electron desktop application on the server.
+
+### Dedicated server gateway
+
+The normal desktop flow does not require a dedicated server gateway: the client
+starts its own loopback gateway automatically. On a controlled Linux, Windows,
+or macOS Docker host, the TUI installs a dedicated external preview gateway by
+copying the gateway payload, creating a per-install server secret, building the
+gateway, and starting it on a loopback or explicitly selected network binding.
+The installer requires an empty target directory and refuses to overwrite an
+existing install or use an occupied port.
+
+`-AI` (also accepted as `--ai-context`) prints stable JSON describing the
+commands, defaults, platform support, and security boundary without reading
+Docker or touching the filesystem:
 
 ```powershell
-npx --yes harbor-desk install-server -AI
+npm exec --yes harbor-desk -- install-server -AI
 ```
 
 The examples below use the npm-published package. When the GitHub release is
-newer than the registry, replace the `npx --yes harbor-desk` prefix with
-`npx --yes --package ./harbor-desk-<version>.tgz harbor-desk` after verifying the
-downloaded tarball.
+newer than the registry, replace the `npm exec --yes harbor-desk --` prefix with
+`npm exec --yes --package ./harbor-desk-<version>.tgz -- harbor-desk` after
+verifying the downloaded tarball.
 
 ```bash
-npx --yes harbor-desk install-server \
+npm exec --yes harbor-desk -- install-server \
   --directory /srv/harbor-desk-preview \
   --port 4311 \
   --engine-name "server local Docker Engine" \
@@ -161,7 +179,7 @@ directory, authentication configuration, and published port without creating
 files or containers. The default is loopback plus development authentication:
 
 ```bash
-npx --yes harbor-desk install-server \
+npm exec --yes harbor-desk -- install-server \
   --directory /srv/harbor-desk-preview \
   --port 4311 \
   --allow-local-engine-socket \
@@ -174,7 +192,7 @@ provider endpoints must use HTTPS. The browser origin must be supplied for the
 client that will call the gateway:
 
 ```bash
-npx --yes harbor-desk install-server \
+npm exec --yes harbor-desk -- install-server \
   --directory /srv/harbor-desk-public \
   --public \
   --auth-mode oidc \
@@ -195,7 +213,7 @@ To connect the server gateway to a remote Docker Engine without mounting the
 server Docker socket, pass an HTTPS Engine endpoint and all three mTLS files:
 
 ```bash
-npx --yes harbor-desk install-server \
+npm exec --yes harbor-desk -- install-server \
   --directory /srv/harbor-desk-remote \
   --engine-endpoint https://engine.example.com:2376 \
   --engine-ca-file /etc/harbor-desk/engine/ca.pem \
@@ -223,7 +241,7 @@ because Docker Desktop resolves that bind source inside its own Linux virtual
 machine rather than on the host filesystem.
 
 ```powershell
-npx --yes harbor-desk install-server --directory C:\harbor-desk-preview --port 4311 --allow-local-engine-socket
+npm exec --yes harbor-desk -- install-server --directory C:\harbor-desk-preview --port 4311 --allow-local-engine-socket
 ```
 
 ## Supported platforms

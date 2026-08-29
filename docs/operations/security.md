@@ -1,7 +1,7 @@
 # Security boundary checklist
 
 - Production gateway binds behind TLS and uses `AUTH_MODE=oidc`.
-- `npx harbor-desk install-server` defaults to exact loopback (`127.0.0.1`) and
+- `npm exec --yes harbor-desk -- install-server` defaults to exact loopback (`127.0.0.1`) and
   development authentication. A public bind (`--public` or
   `--bind-host 0.0.0.0`) is rejected unless OIDC and a valid provider file are
   supplied.

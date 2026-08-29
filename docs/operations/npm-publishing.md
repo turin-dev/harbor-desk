@@ -35,7 +35,7 @@ testing a preview:
 ```powershell
 npm view harbor-desk@0.5.1 version
 npm view harbor-desk dist-tags --json
-npx --yes harbor-desk@0.5.1 --version
+npm exec --yes harbor-desk@0.5.1 -- --version
 ```
 
 ## Re-running an existing release

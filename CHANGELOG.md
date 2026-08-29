@@ -7,6 +7,25 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-08-29
+
+### Added
+
+- The default server-side `npm exec --yes harbor-desk` command now opens a
+  keyboard-driven TUI when run from an interactive SSH session.
+- The TUI supplies safe defaults, detects the server Docker socket as the
+  common connection, keeps remote Engine mTLS as an advanced choice, validates
+  the configuration, and prints SSH tunnel plus Gateway/WebSocket connection
+  information after installation.
+- `install` is now an alias for `install-server`; non-interactive sessions fail
+  with explicit SSH guidance instead of waiting for input.
+
+### Changed
+
+- Server setup no longer opens a browser or requires users to assemble long
+  installation arguments for the normal interactive path. Explicit options
+  remain available for automation.
+
 ## [0.5.2] - 2026-08-29
 
 ### Added
@@ -234,7 +253,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.3
 [0.5.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.2
 [0.5.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.0
