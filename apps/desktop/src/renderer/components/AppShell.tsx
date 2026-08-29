@@ -59,6 +59,13 @@ import {
 } from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
 import { shouldShowInitialGatewayLoading } from "../bootstrap-state.js";
+import {
+  connectionModeLabel,
+  initials,
+  statusBarPrimaryText,
+  statusLabel,
+  updateStatusLabel,
+} from "../statusbar-copy.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { QuickSearch } from "./QuickSearch.js";
 import { TerminalDrawer } from "./TerminalDrawer.js";
@@ -106,26 +113,6 @@ const secondaryNavigation = [
     icon: <Extension fontSize="small" />,
   },
 ];
-
-function statusLabel(status: HostStatus): string {
-  return status === "online"
-    ? "Connected"
-    : status === "offline"
-      ? "Offline"
-      : status === "degraded"
-        ? "Degraded"
-        : "Checking";
-}
-
-function initials(value: string | undefined): string {
-  const parts = value?.trim().split(/\s+/).filter(Boolean) ?? [];
-  if (!parts.length) return "HD";
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
 
 function NavigationList({
   pathname,
@@ -236,26 +223,11 @@ function ClientStatusBar({
   onOpenUpdate: () => void;
 }) {
   const online = host?.status === "online";
-  const modeLabel =
-    connectionMode === "gateway"
-      ? "Server Gateway"
-      : connectionMode === "engine"
-        ? "Local Gateway wrapper"
-        : connectionMode === "detecting"
-          ? "Detecting connection"
-          : connectionUnavailable || connectionMode === "unavailable"
-            ? "Connection unavailable"
-            : "Not configured";
-  const updateLabel =
-    updateStatus.state === "checking"
-      ? "Checking for updates…"
-      : updateStatus.state === "available"
-        ? `Update ${updateStatus.latestVersion} available`
-        : updateStatus.state === "up-to-date"
-          ? "Up to date"
-          : updateStatus.state === "error"
-            ? "Update check failed"
-            : "Check for updates";
+  const modeLabel = connectionModeLabel(connectionMode, connectionUnavailable);
+  const updateLabel = updateStatusLabel(
+    updateStatus.state,
+    updateStatus.latestVersion,
+  );
   return (
     <Box
       component="footer"
@@ -283,15 +255,11 @@ function ClientStatusBar({
         }}
       />
       <Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>
-        {connectionUnavailable
-          ? "Connection unavailable"
-          : host
-            ? `${host.displayName} · ${statusLabel(host.status)}`
-            : connectionMode === "engine"
-              ? "Local Gateway ready · No Engine host"
-              : connectionMode === "gateway"
-                ? "Server Gateway ready · No host selected"
-                : "Configure a connection"}
+        {statusBarPrimaryText({
+          connectionUnavailable,
+          host,
+          connectionMode,
+        })}
       </Typography>
       <Divider orientation="vertical" flexItem sx={{ my: 0.75 }} />
       <Typography
