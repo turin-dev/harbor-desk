@@ -7,6 +7,8 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-29
+
 ### Changed
 
 - The desktop now accepts one Gateway or Docker Engine target and detects the
@@ -263,7 +265,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.6.0
 [0.5.3]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.3
 [0.5.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.2
 [0.5.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.1
