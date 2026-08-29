@@ -7,6 +7,13 @@ import type {
   VolumeCreateInput,
 } from "@harbor/contracts";
 import { desktopConnection, gateway } from "../api/client.js";
+import {
+  defaultAuditLimit,
+  defaultDeleteForce,
+  defaultPruneAll,
+  operationRefetchInterval,
+  withDefaultOperationId,
+} from "./query-policy.js";
 
 export function useConnectionStatus() {
   const queryClient = useQueryClient();
@@ -171,7 +178,7 @@ export function usePullImage(hostId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { image: string; operationId?: string }) => {
-      const operationId = input.operationId ?? crypto.randomUUID();
+      const operationId = withDefaultOperationId(input.operationId);
       return gateway.pullImage(hostId!, { image: input.image }, operationId);
     },
     onSuccess: async () => {
@@ -191,15 +198,12 @@ export function useCancelOperation() {
 }
 
 export function useOperation(operationId: string | undefined) {
-  const isFinal = (status?: string) =>
-    status === "succeeded" || status === "failed" || status === "cancelled";
-
   const query = useQuery({
     queryKey: ["operation", operationId],
     queryFn: () => gateway.getOperation(operationId!),
     enabled: Boolean(operationId),
     refetchInterval: (query) =>
-      isFinal(query.state.data?.status) ? false : 2000,
+      operationRefetchInterval(query.state.data?.status),
     refetchOnWindowFocus: false,
   });
 
@@ -217,7 +221,8 @@ export function usePruneResources(hostId: string | undefined) {
       kind: PruneResourceKind;
       all?: boolean;
       operationId?: string;
-    }) => gateway.pruneResources(hostId!, kind, all ?? false, operationId),
+    }) =>
+      gateway.pruneResources(hostId!, kind, defaultPruneAll(all), operationId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
       await queryClient.invalidateQueries({ queryKey: ["volumes", hostId] });
@@ -231,7 +236,7 @@ export function usePruneResources(hostId: string | undefined) {
 export function useAudit(limit?: number) {
   return useQuery({
     queryKey: ["audit", limit],
-    queryFn: () => gateway.getAudit(limit ?? 200),
+    queryFn: () => gateway.getAudit(defaultAuditLimit(limit)),
     refetchOnWindowFocus: false,
   });
 }
@@ -353,7 +358,8 @@ export function useDeleteContainer(hostId: string | undefined) {
     }: {
       containerId: string;
       force?: boolean;
-    }) => gateway.deleteContainer(hostId!, containerId, force ?? false),
+    }) =>
+      gateway.deleteContainer(hostId!, containerId, defaultDeleteForce(force)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["containers", hostId] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
