@@ -43,6 +43,13 @@ still change between minor versions.
   exercises probe, volume, network, container lifecycle, and the
   in-flight abort paths, and cleans up only the resources it created.
 
+- `pnpm run smoke:live` runs a full-stack smoke
+  (`scripts/live-gateway-smoke.mjs`) that boots the built gateway
+  in-process, registers the live Docker Engine, and cancels a running
+  image pull over HTTP, asserting the operation settles as `cancelled`
+  (202) while the host stays online. Engine and image are overrideable
+  via `SMOKE_ENDPOINT` / `SMOKE_IMAGE`.
+
 ### Fixed
 
 - The Troubleshoot screen can now retry a saved Gateway or Docker Engine target
