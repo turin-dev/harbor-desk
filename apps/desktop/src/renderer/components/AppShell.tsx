@@ -714,7 +714,7 @@ export function AppShell() {
               >
                 {hostsError
                   ? connection?.mode === "unconfigured"
-                    ? "Configure a Gateway or Docker Engine connection in Settings."
+                    ? "Open Connections and click Connect Docker Engine to configure a Gateway or Docker Engine target."
                     : connection?.mode === "engine"
                       ? "The local Gateway wrapper is unavailable. Open Troubleshoot for connection details."
                       : connection?.mode === "gateway"

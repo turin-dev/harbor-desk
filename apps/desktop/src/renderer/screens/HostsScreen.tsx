@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import { Add, DeleteOutline, Dns, Refresh } from "@mui/icons-material";
 import type { Host, HostRegistrationInput } from "@harbor/contracts";
+import { ConnectionTargetDialog } from "../components/ConnectionTargetDialog.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
 import {
@@ -45,6 +46,7 @@ export function HostsScreen() {
   const showToast = useUiStore((state) => state.showToast);
   const setSelectedHostId = useUiStore((state) => state.setSelectedHostId);
   const [open, setOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const [form, setForm] = useState<HostRegistrationInput>(initialForm);
   const [formError, setFormError] = useState<string>();
   const [removeTarget, setRemoveTarget] = useState<Host>();
@@ -92,12 +94,18 @@ export function HostsScreen() {
             >
               Refresh
             </Button>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => setConnectionOpen(true)}
+            >
+              {connection.data?.mode === "unconfigured" ||
+              connection.data?.mode === "unavailable"
+                ? "Connect Docker Engine"
+                : "Change connection"}
+            </Button>
             {!localEngineMode && connection.data?.mode === "gateway" && (
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={() => setOpen(true)}
-              >
+              <Button variant="outlined" onClick={() => setOpen(true)}>
                 Add remote host
               </Button>
             )}
@@ -210,6 +218,10 @@ export function HostsScreen() {
           ))}
         </Stack>
       )}
+      <ConnectionTargetDialog
+        open={connectionOpen}
+        onClose={() => setConnectionOpen(false)}
+      />
       <Dialog
         open={open}
         onClose={() => !addHost.isPending && setOpen(false)}
