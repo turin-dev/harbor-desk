@@ -20,7 +20,7 @@
     "package:mac": "pnpm run build && electron-builder --mac dmg zip",
     "package:dir": "pnpm run build && electron-builder --dir",
     "start": "electron .",
-    "test": "node --test dist/**/*.test.js && tsx --test test/connection-input.test.ts tsx --test test/connection-manager.test.ts test/update-checker.test.ts src/renderer/bootstrap-state.test.ts src/renderer/api/client.test.ts src/renderer/screens/hosts-state.test.ts src/renderer/state/prune-state.test.ts"
+    "test": "node --test dist/**/*.test.js && tsx --test test/connection-input.test.ts test/managed-gateway.test.ts tsx --test test/connection-manager.test.ts test/update-checker.test.ts src/renderer/bootstrap-state.test.ts src/renderer/api/client.test.ts src/renderer/screens/hosts-state.test.ts src/renderer/state/prune-state.test.ts"
   },
   "dependencies": {
     "@fontsource/roboto": "^5.3.0",
