@@ -20,6 +20,11 @@ still change between minor versions.
   Cancel button posts to the operation cancel endpoint and the gateway
   aborts the Engine request server-side, reporting the operation as
   `cancelled` without marking the remote host offline.
+- Cancellable operations for every mutation: prune, container
+  create/lifecycle/delete, image delete, volume create/delete, and network
+  create/delete now abort their Engine request server-side when the
+  operation is cancelled, and the Images, Volumes, and Networks Prune
+  dialogs keep open with a live "Cancel prune" action while a prune runs.
 - Prune operations for containers, images, volumes, and networks via
   `POST /api/v1/hosts/{hostId}/prune/{kind}` (operator role, audited,
   returns a 202 operation record), with Prune dialogs on the Images,

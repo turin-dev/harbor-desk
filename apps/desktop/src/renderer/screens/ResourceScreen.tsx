@@ -170,11 +170,17 @@ function ImagesView({ hostId }: { hostId?: string }) {
   const [pullOperationId, setPullOperationId] = useState<string>();
   const [pruneOpen, setPruneOpen] = useState(false);
   const [pruneAll, setPruneAll] = useState(false);
+  const [pruneOperationId, setPruneOperationId] = useState<string>();
   const pullOperation = useOperation(pullOperationId);
   const pullActive =
     pull.isPending ||
     pullOperation?.status === "queued" ||
     pullOperation?.status === "running";
+  const pruneOperation = useOperation(pruneOperationId);
+  const pruneActive =
+    prune.isPending ||
+    pruneOperation?.status === "queued" ||
+    pruneOperation?.status === "running";
   const canPrune = (user?.role ?? "viewer") !== "viewer";
   const normalized = filter.trim().toLowerCase();
   const rows = useMemo(
@@ -220,9 +226,7 @@ function ImagesView({ hostId }: { hostId?: string }) {
                     setPruneAll(false);
                     setPruneOpen(true);
                   }}
-                  disabled={
-                    !hostId || !hostOnline || !canPrune || prune.isPending
-                  }
+                  disabled={!hostId || !hostOnline || !canPrune || pruneActive}
                 >
                   Prune
                 </Button>
@@ -466,30 +470,58 @@ function ImagesView({ hostId }: { hostId?: string }) {
       <PruneDialog
         open={pruneOpen}
         kind="images"
-        pending={prune.isPending}
+        pending={pruneActive}
         all={pruneAll}
         onAllChange={setPruneAll}
-        onClose={() => !prune.isPending && setPruneOpen(false)}
+        onClose={
+          pruneActive && pruneOperationId
+            ? () => {
+                cancel.mutate(pruneOperationId, {
+                  onSuccess: () => showToast("Prune cancelled.", "info"),
+                  onError: (error) =>
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "The prune could not be cancelled.",
+                      "error",
+                    ),
+                });
+              }
+            : () => !prune.isPending && setPruneOpen(false)
+        }
+        onLabel={pruneActive ? "Cancel prune" : "Cancel"}
         onConfirm={() => {
+          const operationId = crypto.randomUUID();
+          setPruneOperationId(operationId);
           prune.mutate(
-            { kind: "images", all: pruneAll },
+            { kind: "images", all: pruneAll, operationId },
             {
               onSuccess: (operation) => {
                 setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   operation.status === "succeeded"
                     ? "Unused images were pruned on the remote host."
-                    : (operation.message ?? "Image prune failed."),
-                  operation.status === "succeeded" ? "success" : "error",
+                    : operation.status === "cancelled"
+                      ? "Image prune cancelled."
+                      : (operation.message ?? "Image prune failed."),
+                  operation.status === "succeeded"
+                    ? "success"
+                    : operation.status === "cancelled"
+                      ? "info"
+                      : "error",
                 );
               },
-              onError: (error) =>
+              onError: (error) => {
+                setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   error instanceof Error
                     ? error.message
                     : "Image prune failed.",
                   "error",
-                ),
+                );
+              },
             },
           );
         }}
@@ -546,8 +578,15 @@ function VolumesView({ hostId }: { hostId?: string }) {
   const remove = useDeleteVolume(hostId);
   const { data: user } = useCurrentUser();
   const prune = usePruneResources(hostId);
+  const cancel = useCancelOperation();
   const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneOperationId, setPruneOperationId] = useState<string>();
   const canPrune = (user?.role ?? "viewer") !== "viewer";
+  const pruneOperation = useOperation(pruneOperationId);
+  const pruneActive =
+    prune.isPending ||
+    pruneOperation?.status === "queued" ||
+    pruneOperation?.status === "running";
   const showToast = useUiStore((state) => state.showToast);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<VolumeSummary>();
@@ -626,9 +665,7 @@ function VolumesView({ hostId }: { hostId?: string }) {
                   color="error"
                   startIcon={<CleaningServices />}
                   onClick={() => setPruneOpen(true)}
-                  disabled={
-                    !hostId || !hostOnline || !canPrune || prune.isPending
-                  }
+                  disabled={!hostId || !hostOnline || !canPrune || pruneActive}
                 >
                   Prune
                 </Button>
@@ -811,28 +848,56 @@ function VolumesView({ hostId }: { hostId?: string }) {
       <PruneDialog
         open={pruneOpen}
         kind="volumes"
-        pending={prune.isPending}
-        onClose={() => !prune.isPending && setPruneOpen(false)}
+        pending={pruneActive}
+        onClose={
+          pruneActive && pruneOperationId
+            ? () => {
+                cancel.mutate(pruneOperationId, {
+                  onSuccess: () => showToast("Prune cancelled.", "info"),
+                  onError: (error) =>
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "The prune could not be cancelled.",
+                      "error",
+                    ),
+                });
+              }
+            : () => !prune.isPending && setPruneOpen(false)
+        }
+        onLabel={pruneActive ? "Cancel prune" : "Cancel"}
         onConfirm={() => {
+          const operationId = crypto.randomUUID();
+          setPruneOperationId(operationId);
           prune.mutate(
-            { kind: "volumes" },
+            { kind: "volumes", operationId },
             {
               onSuccess: (operation) => {
                 setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   operation.status === "succeeded"
                     ? "Unused volumes were pruned on the remote host."
-                    : (operation.message ?? "Volume prune failed."),
-                  operation.status === "succeeded" ? "success" : "error",
+                    : operation.status === "cancelled"
+                      ? "Volume prune cancelled."
+                      : (operation.message ?? "Volume prune failed."),
+                  operation.status === "succeeded"
+                    ? "success"
+                    : operation.status === "cancelled"
+                      ? "info"
+                      : "error",
                 );
               },
-              onError: (error) =>
+              onError: (error) => {
+                setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   error instanceof Error
                     ? error.message
                     : "Volume prune failed.",
                   "error",
-                ),
+                );
+              },
             },
           );
         }}
@@ -888,9 +953,16 @@ function NetworksView({ hostId }: { hostId?: string }) {
   const create = useCreateNetwork(hostId);
   const remove = useDeleteNetwork(hostId);
   const prune = usePruneResources(hostId);
+  const cancel = useCancelOperation();
   const { data: user } = useCurrentUser();
   const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneOperationId, setPruneOperationId] = useState<string>();
   const canPrune = (user?.role ?? "viewer") !== "viewer";
+  const pruneOperation = useOperation(pruneOperationId);
+  const pruneActive =
+    prune.isPending ||
+    pruneOperation?.status === "queued" ||
+    pruneOperation?.status === "running";
   const showToast = useUiStore((state) => state.showToast);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<NetworkSummary>();
@@ -973,9 +1045,7 @@ function NetworksView({ hostId }: { hostId?: string }) {
                   color="error"
                   startIcon={<CleaningServices />}
                   onClick={() => setPruneOpen(true)}
-                  disabled={
-                    !hostId || !hostOnline || !canPrune || prune.isPending
-                  }
+                  disabled={!hostId || !hostOnline || !canPrune || pruneActive}
                 >
                   Prune
                 </Button>
@@ -1138,28 +1208,56 @@ function NetworksView({ hostId }: { hostId?: string }) {
       <PruneDialog
         open={pruneOpen}
         kind="networks"
-        pending={prune.isPending}
-        onClose={() => !prune.isPending && setPruneOpen(false)}
+        pending={pruneActive}
+        onClose={
+          pruneActive && pruneOperationId
+            ? () => {
+                cancel.mutate(pruneOperationId, {
+                  onSuccess: () => showToast("Prune cancelled.", "info"),
+                  onError: (error) =>
+                    showToast(
+                      error instanceof Error
+                        ? error.message
+                        : "The prune could not be cancelled.",
+                      "error",
+                    ),
+                });
+              }
+            : () => !prune.isPending && setPruneOpen(false)
+        }
+        onLabel={pruneActive ? "Cancel prune" : "Cancel"}
         onConfirm={() => {
+          const operationId = crypto.randomUUID();
+          setPruneOperationId(operationId);
           prune.mutate(
-            { kind: "networks" },
+            { kind: "networks", operationId },
             {
               onSuccess: (operation) => {
                 setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   operation.status === "succeeded"
                     ? "Unused networks were pruned on the remote host."
-                    : (operation.message ?? "Network prune failed."),
-                  operation.status === "succeeded" ? "success" : "error",
+                    : operation.status === "cancelled"
+                      ? "Network prune cancelled."
+                      : (operation.message ?? "Network prune failed."),
+                  operation.status === "succeeded"
+                    ? "success"
+                    : operation.status === "cancelled"
+                      ? "info"
+                      : "error",
                 );
               },
-              onError: (error) =>
+              onError: (error) => {
+                setPruneOpen(false);
+                setPruneOperationId(undefined);
                 showToast(
                   error instanceof Error
                     ? error.message
                     : "Network prune failed.",
                   "error",
-                ),
+                );
+              },
             },
           );
         }}
@@ -1466,6 +1564,7 @@ function PruneDialog({
   all,
   onAllChange,
   onClose,
+  onLabel,
   onConfirm,
 }: {
   open: boolean;
@@ -1474,6 +1573,7 @@ function PruneDialog({
   all?: boolean;
   onAllChange?: (value: boolean) => void;
   onClose: () => void;
+  onLabel?: string;
   onConfirm: () => void;
 }) {
   return (
@@ -1500,7 +1600,7 @@ function PruneDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={pending}>
-          Cancel
+          {onLabel ?? "Cancel"}
         </Button>
         <Button
           color="error"

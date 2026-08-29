@@ -302,21 +302,23 @@ export class HostRegistry {
     hostId: string,
     kind: PruneResourceKind,
     all = false,
+    signal?: AbortSignal,
   ): Promise<PruneSummary> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
       const summary =
         kind === "containers"
-          ? await record.client.pruneContainers(all)
+          ? await record.client.pruneContainers(all, signal)
           : kind === "images"
-            ? await record.client.pruneImages(all)
+            ? await record.client.pruneImages(all, signal)
             : kind === "volumes"
-              ? await record.client.pruneVolumes()
-              : await record.client.pruneNetworks();
+              ? await record.client.pruneVolumes(signal)
+              : await record.client.pruneNetworks(signal);
       this.markOnline(record);
       return summary;
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -326,13 +328,15 @@ export class HostRegistry {
     hostId: string,
     imageId: string,
     force: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.deleteImage(imageId, force);
+      await record.client.deleteImage(imageId, force, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -368,13 +372,15 @@ export class HostRegistry {
   public async createVolume(
     hostId: string,
     input: VolumeCreateInput,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.createVolume(input);
+      await record.client.createVolume(input, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -384,13 +390,15 @@ export class HostRegistry {
     hostId: string,
     name: string,
     force: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.deleteVolume(name, force);
+      await record.client.deleteVolume(name, force, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -426,25 +434,32 @@ export class HostRegistry {
   public async createNetwork(
     hostId: string,
     input: NetworkCreateInput,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.createNetwork(input);
+      await record.client.createNetwork(input, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
   }
 
-  public async deleteNetwork(hostId: string, networkId: string): Promise<void> {
+  public async deleteNetwork(
+    hostId: string,
+    networkId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.deleteNetwork(networkId);
+      await record.client.deleteNetwork(networkId, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -453,14 +468,16 @@ export class HostRegistry {
   public async createContainer(
     hostId: string,
     input: ContainerCreateInput,
+    signal?: AbortSignal,
   ): Promise<string> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      const id = await record.client.createContainer(input);
+      const id = await record.client.createContainer(input, signal);
       this.markOnline(record);
       return id;
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -470,13 +487,15 @@ export class HostRegistry {
     hostId: string,
     containerId: string,
     action: "start" | "stop" | "restart" | "pause" | "unpause" | "kill",
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.actionContainer(containerId, action);
+      await record.client.actionContainer(containerId, action, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }
@@ -486,13 +505,15 @@ export class HostRegistry {
     hostId: string,
     containerId: string,
     force: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
     const record = this.get(hostId);
     this.assertOnline(record);
     try {
-      await record.client.deleteContainer(containerId, force);
+      await record.client.deleteContainer(containerId, force, signal);
       this.markOnline(record);
     } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }

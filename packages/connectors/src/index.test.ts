@@ -94,6 +94,59 @@ test("fails fast when a pull signal is already aborted", async () => {
       error instanceof HttpError && error.code === "operation_cancelled",
   );
 });
+
+test("aborts a running prune request and keeps the deterministic cancel code", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  let rejectIteration: (error: Error) => void = () => undefined;
+  const stuck = new Promise<never>((_resolve, reject) => {
+    rejectIteration = reject;
+  });
+  const neverEnding = {
+    [Symbol.asyncIterator]() {
+      return {
+        next: () =>
+          Promise.resolve({ done: false, value: "{}" }).then(() => stuck),
+      };
+    },
+    destroy: (error?: Error) => {
+      rejectIteration(error ?? new Error("destroyed"));
+    },
+  };
+  (client as unknown as { requestRaw: unknown }).requestRaw = (
+    path: string,
+    options?: { signal?: AbortSignal },
+  ) => {
+    assert.equal(path, "/volumes/prune");
+    assert.equal(options?.signal, controller.signal);
+    return Promise.resolve(neverEnding);
+  };
+  const pending = client.pruneVolumes(controller.signal);
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(
+    pending,
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.code === "operation_cancelled" &&
+      /cancelled/i.test(error.message),
+  );
+});
+
+test("fails fast for container mutations with an already aborted signal", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    client.deleteContainer("c1", true, controller.signal),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "operation_cancelled",
+  );
+  await assert.rejects(
+    client.pruneContainers(false, controller.signal),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "operation_cancelled",
+  );
+});
 test("maps prune endpoints to a normalized prune summary", async () => {
   const containers = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
   (containers as unknown as { requestJson: unknown }).requestJson = async (

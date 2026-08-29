@@ -340,10 +340,21 @@ export const gateway = {
     ),
   getAudit: (limit = 200) =>
     request<AuditEvent[]>(`/api/v1/audit?limit=${limit}`),
-  pruneResources: (hostId: string, kind: PruneResourceKind, all = false) =>
+  pruneResources: (
+    hostId: string,
+    kind: PruneResourceKind,
+    all = false,
+    operationId?: string,
+  ) =>
     request<Operation>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/prune/${kind}?all=${all ? "true" : "false"}`,
-      { method: "POST", headers: { "idempotency-key": crypto.randomUUID() } },
+      {
+        method: "POST",
+        headers: {
+          "idempotency-key": crypto.randomUUID(),
+          ...(operationId ? { "operation-id": operationId } : {}),
+        },
+      },
     ),
   createTerminalSession: (
     hostId: string,

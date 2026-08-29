@@ -209,8 +209,15 @@ export function useOperation(operationId: string | undefined) {
 export function usePruneResources(hostId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ kind, all }: { kind: PruneResourceKind; all?: boolean }) =>
-      gateway.pruneResources(hostId!, kind, all ?? false),
+    mutationFn: ({
+      kind,
+      all,
+      operationId,
+    }: {
+      kind: PruneResourceKind;
+      all?: boolean;
+      operationId?: string;
+    }) => gateway.pruneResources(hostId!, kind, all ?? false, operationId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
       await queryClient.invalidateQueries({ queryKey: ["volumes", hostId] });

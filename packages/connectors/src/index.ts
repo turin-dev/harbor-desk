@@ -371,18 +371,27 @@ export class DockerEngineClient {
     }
   }
 
-  public async pruneContainers(all: boolean): Promise<PruneSummary> {
+  public async pruneContainers(
+    all: boolean,
+    signal?: AbortSignal,
+  ): Promise<PruneSummary> {
     const response = await this.requestJson<{
       ContainersDeleted?: string[];
       SpaceReclaimed?: number;
-    }>(`/containers/prune?all=${all ? "1" : "0"}`, { method: "POST" });
+    }>(`/containers/prune?all=${all ? "1" : "0"}`, {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+    });
     return {
       freedBytes: response.SpaceReclaimed,
       containersDeleted: response.ContainersDeleted,
     };
   }
 
-  public async pruneImages(all: boolean): Promise<PruneSummary> {
+  public async pruneImages(
+    all: boolean,
+    signal?: AbortSignal,
+  ): Promise<PruneSummary> {
     const response = await this.requestJson<{
       ImagesDeleted?: Array<{
         Digest?: string;
@@ -390,31 +399,47 @@ export class DockerEngineClient {
         Deleted?: string;
       }>;
       SpaceReclaimed?: number;
-    }>(`/images/prune?all=${all ? "1" : "0"}`, { method: "POST" });
+    }>(`/images/prune?all=${all ? "1" : "0"}`, {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+    });
     return {
       freedBytes: response.SpaceReclaimed,
       imagesDeleted: response.ImagesDeleted,
     };
   }
 
-  public async pruneVolumes(): Promise<PruneSummary> {
+  public async pruneVolumes(signal?: AbortSignal): Promise<PruneSummary> {
     const response = await this.requestJson<{
       VolumesDeleted?: string[];
-    }>("/volumes/prune", { method: "POST" });
+    }>("/volumes/prune", {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+    });
     return { volumesDeleted: response.VolumesDeleted };
   }
 
-  public async pruneNetworks(): Promise<PruneSummary> {
+  public async pruneNetworks(signal?: AbortSignal): Promise<PruneSummary> {
     const response = await this.requestJson<{
       NetworksDeleted?: string[];
-    }>("/networks/prune", { method: "POST" });
+    }>("/networks/prune", {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+    });
     return { networksDeleted: response.NetworksDeleted };
   }
 
-  public async deleteImage(imageId: string, force = false): Promise<void> {
+  public async deleteImage(
+    imageId: string,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.requestJson(
       `/images/${encodeURIComponent(imageId)}?force=${force ? "1" : "0"}`,
-      { method: "DELETE" },
+      {
+        method: "DELETE",
+        ...(signal ? { signal } : {}),
+      },
     );
   }
 
@@ -438,12 +463,16 @@ export class DockerEngineClient {
     );
   }
 
-  public async createVolume(input: VolumeCreateInput): Promise<VolumeSummary> {
+  public async createVolume(
+    input: VolumeCreateInput,
+    signal?: AbortSignal,
+  ): Promise<VolumeSummary> {
     const response = await this.requestJson<RawCreateResponse>(
       "/volumes/create",
       {
         method: "POST",
         body: { Name: input.name, Driver: input.driver || "local" },
+        ...(signal ? { signal } : {}),
       },
     );
     return {
@@ -453,10 +482,17 @@ export class DockerEngineClient {
     };
   }
 
-  public async deleteVolume(name: string, force = false): Promise<void> {
+  public async deleteVolume(
+    name: string,
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.requestJson(
       `/volumes/${encodeURIComponent(name)}?force=${force ? "1" : "0"}`,
-      { method: "DELETE" },
+      {
+        method: "DELETE",
+        ...(signal ? { signal } : {}),
+      },
     );
   }
 
@@ -480,7 +516,10 @@ export class DockerEngineClient {
     );
   }
 
-  public async createNetwork(input: NetworkCreateInput): Promise<string> {
+  public async createNetwork(
+    input: NetworkCreateInput,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const response = await this.requestJson<RawCreateResponse>(
       "/networks/create",
       {
@@ -490,6 +529,7 @@ export class DockerEngineClient {
           Driver: input.driver || "bridge",
           Internal: input.internal ?? false,
         },
+        ...(signal ? { signal } : {}),
       },
     );
     if (!response.Id)
@@ -497,13 +537,20 @@ export class DockerEngineClient {
     return response.Id;
   }
 
-  public async deleteNetwork(networkId: string): Promise<void> {
+  public async deleteNetwork(
+    networkId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.requestJson(`/networks/${encodeURIComponent(networkId)}`, {
       method: "DELETE",
+      ...(signal ? { signal } : {}),
     });
   }
 
-  public async createContainer(input: ContainerCreateInput): Promise<string> {
+  public async createContainer(
+    input: ContainerCreateInput,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const query = input.name ? `?name=${encodeURIComponent(input.name)}` : "";
     const body: Record<string, unknown> = { Image: input.image };
     if (input.command?.trim()) body.Cmd = ["sh", "-lc", input.command.trim()];
@@ -527,7 +574,7 @@ export class DockerEngineClient {
     }
     const response = await this.requestJson<RawCreateResponse>(
       `/containers/create${query}`,
-      { method: "POST", body },
+      { method: "POST", body, ...(signal ? { signal } : {}) },
     );
     if (!response.Id)
       throw new Error("Docker Engine did not return a container id.");
@@ -537,11 +584,13 @@ export class DockerEngineClient {
   public async actionContainer(
     containerId: string,
     action: "start" | "stop" | "restart" | "pause" | "unpause" | "kill",
+    signal?: AbortSignal,
   ): Promise<void> {
     await this.requestJson(
       `/containers/${encodeURIComponent(containerId)}/${action}`,
       {
         method: "POST",
+        ...(signal ? { signal } : {}),
       },
     );
   }
@@ -549,10 +598,14 @@ export class DockerEngineClient {
   public async deleteContainer(
     containerId: string,
     force = false,
+    signal?: AbortSignal,
   ): Promise<void> {
     await this.requestJson(
       `/containers/${encodeURIComponent(containerId)}?force=${force ? "1" : "0"}`,
-      { method: "DELETE" },
+      {
+        method: "DELETE",
+        ...(signal ? { signal } : {}),
+      },
     );
   }
 
@@ -642,10 +695,11 @@ export class DockerEngineClient {
       method?: string;
       body?: unknown;
       headers?: Record<string, string>;
+      signal?: AbortSignal;
     } = {},
   ): Promise<T> {
     const response = await this.requestRaw(path, options);
-    const body = await collectBody(response);
+    const body = await collectBody(response, options.signal);
     if (response.statusCode && response.statusCode >= 400) {
       throw new EngineRequestError(
         `Docker Engine returned HTTP ${response.statusCode}`,
@@ -793,14 +847,37 @@ export class DockerEngineClient {
   }
 }
 
-async function collectBody(response: IncomingMessage): Promise<string> {
-  return (await collectBuffer(response)).toString("utf8");
+async function collectBody(
+  response: IncomingMessage,
+  signal?: AbortSignal,
+): Promise<string> {
+  return (await collectBuffer(response, signal)).toString("utf8");
 }
 
-async function collectBuffer(response: IncomingMessage): Promise<Buffer> {
+async function collectBuffer(
+  response: IncomingMessage,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of response)
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  let onAbort: (() => void) | undefined;
+  if (signal?.aborted) {
+    response.destroy();
+    throw new HttpError("operation_cancelled", "The operation was cancelled.");
+  }
+  if (signal) {
+    onAbort = () => {
+      response.destroy(
+        new HttpError("operation_cancelled", "The operation was cancelled."),
+      );
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+  try {
+    for await (const chunk of response)
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  } finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
   return Buffer.concat(chunks);
 }
 

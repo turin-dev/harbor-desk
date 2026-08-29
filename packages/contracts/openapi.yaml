@@ -315,6 +315,10 @@ paths:
           description: Operation state
   /api/v1/operations/{operationId}/cancel:
     post:
+      description: >-
+        Cancels a queued or running operation. A running operation aborts the
+        in-flight Engine request, so image pulls, prune, and container, image,
+        volume, and network mutations are cancelled server-side.
       parameters:
         - $ref: "#/components/parameters/operationId"
       responses:

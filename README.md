@@ -55,8 +55,10 @@ The repository currently contains a working first vertical slice:
 - Live image pull progress through gateway operation polling (determinate
   progress and status messages), and prune operations for containers,
   images, volumes, and networks from their resource screens. Pulls can be
-  cancelled while running: the gateway aborts the Engine request and
-  reports the operation as `cancelled`.
+  cancelled while running, and every mutation operation (pull, prune,
+  container, image, volume, and network actions) can be cancelled the same
+  way: the gateway aborts the Engine request and reports the operation as
+  `cancelled` without marking the remote host offline.
 - Live image inspect/remove, volume create/inspect/delete, and network
   create/inspect/delete flows with destructive-action confirmation.
 - Quick search across live remote resources, event notification center, toast

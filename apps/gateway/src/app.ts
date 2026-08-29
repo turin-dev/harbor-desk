@@ -245,6 +245,12 @@ function getIdempotencyKey(request: FastifyRequest): string | undefined {
   return value.trim();
 }
 
+function getOperationId(request: FastifyRequest): string | undefined {
+  const value = request.headers["operation-id"];
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  return value.trim().length <= 128 ? value.trim() : undefined;
+}
+
 export interface HarborApp {
   app: FastifyInstance;
   registry: HostRegistry;
@@ -616,9 +622,13 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        async () => {
-          const containerId = await registry.createContainer(hostId, input);
-          await registry.containerAction(hostId, containerId, "start");
+        async (signal) => {
+          const containerId = await registry.createContainer(
+            hostId,
+            input,
+            signal,
+          );
+          await registry.containerAction(hostId, containerId, "start", signal);
         },
       );
       audit.record({
@@ -890,7 +900,8 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () => registry.deleteImage(hostId, imageId, query.force ?? false),
+        (signal) =>
+          registry.deleteImage(hostId, imageId, query.force ?? false, signal),
       );
       audit.record({
         actorId: user.id,
@@ -930,11 +941,14 @@ export async function buildApp(
         {
           kind: `prune.${kind}`,
           hostId,
+          ...(getOperationId(request)
+            ? { operationId: getOperationId(request) }
+            : {}),
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        async () => {
-          await registry.pruneResources(hostId, kind, all ?? false);
+        async (signal) => {
+          await registry.pruneResources(hostId, kind, all ?? false, signal);
         },
       );
       audit.record({
@@ -988,11 +1002,15 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () =>
-          registry.createVolume(hostId, {
-            name: body.name.trim(),
-            ...(body.driver?.trim() ? { driver: body.driver.trim() } : {}),
-          }),
+        (signal) =>
+          registry.createVolume(
+            hostId,
+            {
+              name: body.name.trim(),
+              ...(body.driver?.trim() ? { driver: body.driver.trim() } : {}),
+            },
+            signal,
+          ),
       );
       audit.record({
         actorId: user.id,
@@ -1056,7 +1074,13 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () => registry.deleteVolume(hostId, volumeName, query.force ?? false),
+        (signal) =>
+          registry.deleteVolume(
+            hostId,
+            volumeName,
+            query.force ?? false,
+            signal,
+          ),
       );
       audit.record({
         actorId: user.id,
@@ -1110,12 +1134,16 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () =>
-          registry.createNetwork(hostId, {
-            name: body.name.trim(),
-            ...(body.driver?.trim() ? { driver: body.driver.trim() } : {}),
-            internal: body.internal ?? false,
-          }),
+        (signal) =>
+          registry.createNetwork(
+            hostId,
+            {
+              name: body.name.trim(),
+              ...(body.driver?.trim() ? { driver: body.driver.trim() } : {}),
+              internal: body.internal ?? false,
+            },
+            signal,
+          ),
       );
       audit.record({
         actorId: user.id,
@@ -1178,7 +1206,7 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () => registry.deleteNetwork(hostId, networkId),
+        (signal) => registry.deleteNetwork(hostId, networkId, signal),
       );
       audit.record({
         actorId: user.id,
@@ -1223,7 +1251,8 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () => registry.containerAction(hostId, containerId, action),
+        (signal) =>
+          registry.containerAction(hostId, containerId, action, signal),
       );
       audit.record({
         actorId: user.id,
@@ -1273,8 +1302,13 @@ export async function buildApp(
           idempotencyKey: getIdempotencyKey(request),
           requestId: request.id,
         },
-        () =>
-          registry.deleteContainer(hostId, containerId, query.force ?? false),
+        (signal) =>
+          registry.deleteContainer(
+            hostId,
+            containerId,
+            query.force ?? false,
+            signal,
+          ),
       );
       audit.record({
         actorId: user.id,

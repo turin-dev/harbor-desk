@@ -114,3 +114,44 @@ test("posts cancel requests to the operation cancel endpoint", async () => {
     restoreWindow();
   }
 });
+
+test("sends the operation-id header for cancellable prune requests", async () => {
+  const restoreWindow = installWindow();
+  const previousFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.ok(
+        String(input).endsWith("/api/v1/hosts/host-1/prune/images?all=true"),
+      );
+      assert.equal(init?.method, "POST");
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(headers["operation-id"], "prune-op-1");
+      assert.ok(headers["idempotency-key"]);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          data: {
+            id: "prune-op-1",
+            kind: "prune.images",
+            status: "running",
+            startedAt: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      } as Response;
+    };
+
+    const operation = await gateway.pruneResources(
+      "host-1",
+      "images",
+      true,
+      "prune-op-1",
+    );
+    assert.equal(operation.id, "prune-op-1");
+    assert.equal(operation.status, "running");
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreWindow();
+  }
+});
