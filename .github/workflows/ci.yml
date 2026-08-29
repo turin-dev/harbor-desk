@@ -57,6 +57,48 @@ jobs:
       - name: Check npm package contents
         run: npm pack --dry-run
 
+  docker-live-smoke:
+    name: Live Docker smokes (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.18.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and type-check
+        run: pnpm run check
+      - name: Configure smoke endpoint
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            echo "SMOKE_ENDPOINT=unix:///var/run/docker.sock" >> "$GITHUB_ENV"
+          else
+            echo "SMOKE_ENDPOINT=npipe:////./pipe/docker_engine" >> "$GITHUB_ENV"
+          fi
+      - name: Run Engine smoke
+        run: pnpm run smoke:engine
+      - name: Run full-stack gateway smoke
+        run: pnpm run smoke:live
+
   supply-chain:
     name: Dependency review
     runs-on: ubuntu-latest
