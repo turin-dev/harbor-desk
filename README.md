@@ -92,8 +92,8 @@ under the `preview` dist-tag so an unpinned command does not unexpectedly move
 to a preview. To use an exact published preview version:
 
 ```powershell
-npm view harbor-desk@0.6.0 version
-npm exec --yes harbor-desk@0.6.0 -- --version
+npm view harbor-desk@0.6.1 version
+npm exec --yes harbor-desk@0.6.1 -- --version
 ```
 
 GitHub Release assets and npm packages are published separately. Each

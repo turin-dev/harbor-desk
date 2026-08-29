@@ -7,6 +7,15 @@ still change between minor versions.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-29
+
+### Fixed
+
+- The Connections screen now exposes the initial connection button when no
+  target is configured and opens the Gateway/Docker Engine registration dialog.
+- Unavailable-connection guidance now points to the Connections screen instead
+  of sending users to a settings page without an action.
+
 ## [0.6.0] - 2026-08-29
 
 ### Changed
@@ -265,7 +274,8 @@ entry for package "@harbor/ui"` whenever no stale `dist/` output was present.
 - Open-source documentation, safe setup scripts, contribution and security
   policies, issue templates, and CI.
 
-[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/turin-dev/harbor-desk/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.6.1
 [0.6.0]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.6.0
 [0.5.3]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.3
 [0.5.2]: https://github.com/turin-dev/harbor-desk/releases/tag/v0.5.2
