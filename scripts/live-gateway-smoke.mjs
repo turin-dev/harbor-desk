@@ -15,9 +15,10 @@
 
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../apps/gateway/dist/app.js";
+import { DockerEngineClient } from "../packages/connectors/dist/index.js";
 
 const endpoint = process.env.SMOKE_ENDPOINT ?? "npipe:////./pipe/docker_engine";
-const image = process.env.SMOKE_IMAGE ?? "postgres:16";
+let image = process.env.SMOKE_IMAGE ?? "postgres:16";
 
 const results = [];
 function check(name, ok, detail) {
@@ -58,6 +59,33 @@ const config = {
 const harbor = await buildApp(config);
 let hostId = null;
 try {
+  // Detect the Engine OS so the smoke picks platform-correct images and
+  // commands; a Windows Engine cannot run the linux alpine/postgres stack.
+  const probeClient = new DockerEngineClient({ endpoint });
+  let probe = null;
+  let probeError = null;
+  for (let attempt = 0; attempt < 60 && probe === null; attempt += 1) {
+    try {
+      probe = await probeClient.probe();
+    } catch (error) {
+      probeError = error;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  if (probe === null)
+    throw new Error(
+      "engine not ready: " +
+        (probeError instanceof Error ? probeError.message : String(probeError)),
+    );
+  const isWindowsEngine = String(probe.summary.operatingSystem ?? "")
+    .toLowerCase()
+    .includes("windows");
+  const smallImage = isWindowsEngine
+    ? "mcr.microsoft.com/windows/servercore:ltsc2025"
+    : "alpine:3.20";
+  if (!process.env.SMOKE_IMAGE && isWindowsEngine)
+    image = "mcr.microsoft.com/windows/nanoserver:ltsc2025";
+
   const addRes = await harbor.app.inject({
     method: "POST",
     url: "/api/v1/hosts",
@@ -137,7 +165,7 @@ try {
     method: "POST",
     url: "/api/v1/hosts/" + hostId + "/images/pull",
     headers: { "operation-id": seedPull },
-    payload: { image: "alpine:3.20" },
+    payload: { image: smallImage },
   });
   const seedStatus = await pollOperation(harbor.app, seedPull);
   check(
@@ -170,7 +198,13 @@ try {
   const create = await harbor.app.inject({
     method: "POST",
     url: "/api/v1/hosts/" + hostId + "/containers",
-    payload: { image: "alpine:3.20", name: containerName, command: "sleep 30" },
+    payload: isWindowsEngine
+      ? {
+          image: smallImage,
+          name: containerName,
+          rawCommand: ["ping", "-n", "31", "127.0.0.1"],
+        }
+      : { image: smallImage, name: containerName, command: "sleep 30" },
   });
   check(
     "container create+start settles as a succeeded operation",
@@ -190,48 +224,53 @@ try {
     if (!created) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   check("created container is listed", created !== null, containerName);
+  if (!created)
+    skip(
+      "container stop/start/delete lifecycle",
+      "the created container never appeared in the list",
+    );
+  if (created) {
+    const stopOp = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/stop",
+    });
+    check(
+      "stop action returns a succeeded operation",
+      stopOp.statusCode === 202 && stopOp.json().data.status === "succeeded",
+      "op=" + stopOp.json().data?.status,
+    );
 
-  const stopOp = await harbor.app.inject({
-    method: "POST",
-    url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/stop",
-  });
-  check(
-    "stop action returns a succeeded operation",
-    stopOp.statusCode === 202 && stopOp.json().data.status === "succeeded",
-    "op=" + stopOp.json().data?.status,
-  );
+    const startOp = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/start",
+    });
+    check(
+      "start action returns a succeeded operation",
+      startOp.statusCode === 202 && startOp.json().data.status === "succeeded",
+      "op=" + startOp.json().data?.status,
+    );
 
-  const startOp = await harbor.app.inject({
-    method: "POST",
-    url: "/api/v1/hosts/" + hostId + "/containers/" + created.id + "/start",
-  });
-  check(
-    "start action returns a succeeded operation",
-    startOp.statusCode === 202 && startOp.json().data.status === "succeeded",
-    "op=" + startOp.json().data?.status,
-  );
+    const delOp = await harbor.app.inject({
+      method: "DELETE",
+      url:
+        "/api/v1/hosts/" + hostId + "/containers/" + created.id + "?force=true",
+    });
+    check(
+      "container delete returns a succeeded operation",
+      delOp.statusCode === 202 && delOp.json().data.status === "succeeded",
+      "op=" + delOp.json().data?.status,
+    );
 
-  const delOp = await harbor.app.inject({
-    method: "DELETE",
-    url:
-      "/api/v1/hosts/" + hostId + "/containers/" + created.id + "?force=true",
-  });
-  check(
-    "container delete returns a succeeded operation",
-    delOp.statusCode === 202 && delOp.json().data.status === "succeeded",
-    "op=" + delOp.json().data?.status,
-  );
-
-  const listAfter = await harbor.app.inject({
-    method: "GET",
-    url: "/api/v1/hosts/" + hostId + "/containers",
-  });
-  check(
-    "deleted container is gone from the list",
-    !(listAfter.json().data ?? []).some((row) => row.name === containerName),
-    containerName,
-  );
-
+    const listAfter = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/hosts/" + hostId + "/containers",
+    });
+    check(
+      "deleted container is gone from the list",
+      !(listAfter.json().data ?? []).some((row) => row.name === containerName),
+      containerName,
+    );
+  }
   const hosts = await harbor.app.inject({
     method: "GET",
     url: "/api/v1/hosts",
@@ -286,7 +325,10 @@ try {
     const netCreate = await harbor.app.inject({
       method: "POST",
       url: "/api/v1/hosts/" + hostId + "/networks",
-      payload: { name: smokeNetwork },
+      payload: {
+        name: smokeNetwork,
+        ...(isWindowsEngine ? { driver: "nat" } : {}),
+      },
     });
     check(
       "network create settles as a succeeded operation",
@@ -309,9 +351,10 @@ try {
       method: "POST",
       url: "/api/v1/hosts/" + hostId + "/containers",
       payload: {
-        image: "alpine:3.20",
         name: attachContainerName,
-        command: "sleep 60",
+        ...(isWindowsEngine
+          ? { image: smallImage, rawCommand: ["ping", "-n", "61", "127.0.0.1"] }
+          : { image: smallImage, command: "sleep 60" }),
       },
     });
     check(
@@ -421,7 +464,12 @@ try {
       })
       .catch(() => undefined);
   }
-  {
+  if (isWindowsEngine) {
+    skip(
+      "live image scan",
+      "the trivy scanner is a linux image; not exercised on a windows engine",
+    );
+  } else {
     // Real Trivy scan of an already-pulled image on the live Engine.
     // The scanner image (aquasec/trivy:0.58.2) is pulled by the service
     // on first use, so the first run is dominated by the scanner pull.

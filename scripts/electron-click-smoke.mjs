@@ -236,13 +236,49 @@ async function teardown() {
 }
 
 try {
+  const probeClient = new DockerEngineClient({ endpoint });
+  let probe = null;
+  let probeError = null;
+  // The Engine may still be starting when this step runs; retry like
+  // the other live smokes instead of assuming the first probe wins.
+  for (let attempt = 0; attempt < 60 && probe === null; attempt += 1) {
+    try {
+      probe = await probeClient.probe();
+    } catch (error) {
+      probeError = error;
+      await sleep(2000);
+    }
+  }
+  if (probe === null)
+    throw new Error(
+      "engine not ready: " +
+        (probeError instanceof Error ? probeError.message : String(probeError)),
+    );
+  const isWindowsEngine = String(probe.summary.operatingSystem ?? "")
+    .toLowerCase()
+    .includes("windows");
   client = new DockerEngineClient({ endpoint });
-  await client.createContainer({
-    image: "alpine:3.20",
-    name: containerName,
-    command: "true",
-    restartPolicy: "no",
-  });
+  if (isWindowsEngine) {
+    // Windows containers cannot run the linux alpine seed; the engine
+    // smoke already verified this image and rawCommand on the runner.
+    await client.pullImage(
+      { image: "mcr.microsoft.com/windows/servercore:ltsc2025" },
+      () => undefined,
+    );
+    await client.createContainer({
+      image: "mcr.microsoft.com/windows/servercore:ltsc2025",
+      name: containerName,
+      rawCommand: ["true"],
+      restartPolicy: "no",
+    });
+  } else {
+    await client.createContainer({
+      image: "alpine:3.20",
+      name: containerName,
+      command: "true",
+      restartPolicy: "no",
+    });
+  }
   const seeded = (await client.listContainers(true)).some(
     (row) => row.name === containerName,
   );

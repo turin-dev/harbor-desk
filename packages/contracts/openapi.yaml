@@ -611,6 +611,10 @@ components:
         image: { type: string, minLength: 1, maxLength: 512 }
         name: { type: string, minLength: 1, maxLength: 255 }
         command: { type: string, maxLength: 4096 }
+        rawCommand:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 4096 }
+          maxItems: 64
         ports:
           type: array
           items:

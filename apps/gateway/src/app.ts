@@ -97,6 +97,11 @@ const containerCreateBody = Type.Object({
   image: Type.String({ minLength: 1, maxLength: 512 }),
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
   command: Type.Optional(Type.String({ maxLength: 4_096 })),
+  rawCommand: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 4_096 }), {
+      maxItems: 64,
+    }),
+  ),
   ports: Type.Optional(
     Type.Array(
       Type.Object({
@@ -664,6 +669,7 @@ export async function buildApp(
         image: body.image.trim(),
         ...(body.name?.trim() ? { name: body.name.trim() } : {}),
         ...(body.command?.trim() ? { command: body.command.trim() } : {}),
+        ...(body.rawCommand?.length ? { rawCommand: body.rawCommand } : {}),
         ...(body.ports?.length ? { ports: body.ports } : {}),
         ...(body.env?.length ? { env: body.env } : {}),
         ...(body.restartPolicy ? { restartPolicy: body.restartPolicy } : {}),

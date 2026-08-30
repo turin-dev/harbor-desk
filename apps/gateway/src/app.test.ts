@@ -673,6 +673,14 @@ test("validates container creation input and audit limits", async (t) => {
   assert.equal(badRestart.statusCode, 400);
   assert.equal(badRestart.json().error.code, "validation_error");
 
+  const badRawCommand = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + host.id + "/containers",
+    payload: { image: "nginx:1.27", rawCommand: { not: "an array" } },
+  });
+  assert.equal(badRawCommand.statusCode, 400);
+  assert.equal(badRawCommand.json().error.code, "validation_error");
+
   const missingImage = await harbor.app.inject({
     method: "POST",
     url: "/api/v1/hosts/" + host.id + "/containers",
