@@ -9,6 +9,7 @@ import type {
   DashboardSummary,
   Host,
   HostRegistrationInput,
+  HubSearchResponse,
   ImagePullInput,
   ImageSummary,
   NetworkCreateInput,
@@ -252,6 +253,11 @@ export const gateway = {
   getImages: (hostId: string) =>
     request<ImageSummary[]>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/images`,
+    ),
+  searchHub: (q: string, limit?: number) =>
+    request<HubSearchResponse>(
+      `/api/v1/hub/search?q=${encodeURIComponent(q)}` +
+        (limit ? `&limit=${limit}` : ""),
     ),
   pullImage: (hostId: string, input: ImagePullInput, operationId?: string) =>
     request<Operation>(

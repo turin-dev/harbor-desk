@@ -9,6 +9,13 @@ still change between minor versions.
 
 ### Added
 
+- Docker Hub image discovery: the Registry screen (`/hub`) now searches
+  the public Docker Hub search API through the gateway
+  (`GET /api/v1/hub/search`) and lists repository results with stars,
+  pulls, and official badges. Each result can be pulled directly to the
+  selected remote host with the existing pull operation, live progress,
+  and cancel support. Hub rate limits and unreachable search APIs surface
+  as explicit, retryable errors instead of silent empty states.
 - Container run options: the create dialog now supports published ports
   (container/host port plus protocol), environment variables, a restart
   policy, and labels, and the gateway validates all run-option input

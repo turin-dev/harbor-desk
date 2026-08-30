@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ContainerCreateInput,
+  HubSearchResponse,
   PruneResourceKind,
   NetworkCreateInput,
   VolumeCreateInput,
@@ -208,6 +209,16 @@ export function useOperation(operationId: string | undefined) {
   });
 
   return query.data;
+}
+
+export function useHubSearch(query: string, enabled = true) {
+  return useQuery({
+    queryKey: ["hub-search", query],
+    queryFn: () => gateway.searchHub(query),
+    enabled: enabled && query.trim().length > 0,
+    staleTime: 30_000,
+    retry: false,
+  });
 }
 
 export function usePruneResources(hostId: string | undefined) {

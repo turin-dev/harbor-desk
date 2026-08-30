@@ -18,6 +18,7 @@ import type {
   NetworkCreateInput,
   PruneResourceKind,
   TerminalFrame,
+  HubSearchResult,
   VolumeCreateInput,
 } from "@harbor/contracts";
 import { loadGatewayConfig, type GatewayConfig } from "@harbor/config";
@@ -166,6 +167,10 @@ const operationParams = Type.Object({
 const auditQuery = Type.Object({
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
 });
+const hubSearchQuery = Type.Object({
+  q: Type.String({ minLength: 1, maxLength: 128 }),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+});
 const terminalParams = Type.Object({
   sessionId: Type.String({ minLength: 1, maxLength: 128 }),
 });
@@ -261,6 +266,7 @@ export interface HarborApp {
 
 export interface HarborAppDependencies {
   secrets?: SecretStore;
+  hubTransport?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 export async function buildApp(
@@ -289,6 +295,8 @@ export async function buildApp(
   });
   const operations = new OperationStore(events);
   const audit = new AuditStore();
+  const hubTransport =
+    dependencies.hubTransport ?? ((url, init) => fetch(url, init));
   const assertHostAccess = (
     user: CurrentUser,
     hostId: string,
@@ -779,6 +787,91 @@ export async function buildApp(
     },
   );
 
+  app.get(
+    "/api/v1/hub/search",
+    { schema: { querystring: hubSearchQuery } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const query = request.query as { q: string; limit?: number };
+      const q = query.q.trim();
+      const limit = Math.min(Math.max(query.limit ?? 25, 1), 50);
+      audit.record({
+        actorId: user.id,
+        action: "hub.search",
+        resourceKind: "image",
+        resourceId: q,
+        result: "success",
+        requestId: request.id,
+      });
+      try {
+        const url =
+          "https://registry-1.docker.io/v2/search/repositories" +
+          "?q=" +
+          encodeURIComponent(q) +
+          "&page_size=" +
+          limit;
+        const response = await hubTransport(url, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (response.status === 429) {
+          throw new HttpError(
+            429,
+            "hub_rate_limited",
+            "Docker Hub is rate limiting search requests. Wait a moment and try again.",
+            { retryable: true },
+          );
+        }
+        if (!response.ok) {
+          throw new HttpError(
+            502,
+            "hub_unavailable",
+            "Docker Hub returned an unexpected response to the search request.",
+            { retryable: true },
+          );
+        }
+        const body = (await response.json().catch(() => undefined)) as
+          | { result_count?: unknown; results?: Array<Record<string, unknown>> }
+          | undefined;
+        const results = (body?.results ?? [])
+          .filter((item) => typeof item?.repo_name === "string")
+          .slice(0, limit)
+          .map((item) => ({
+            repository: String(item.repo_name),
+            description:
+              typeof item.description === "string" && item.description
+                ? item.description
+                : undefined,
+            starCount:
+              typeof item.star_count === "number" ? item.star_count : 0,
+            pullCount:
+              typeof item.pull_count === "number" ? item.pull_count : 0,
+            isOfficial: item.is_official === true,
+            repositoryType:
+              typeof item.repository_type === "string"
+                ? item.repository_type
+                : undefined,
+          })) satisfies HubSearchResult[];
+        return sendData(reply, {
+          query: q,
+          resultCount:
+            typeof body?.result_count === "number"
+              ? body.result_count
+              : results.length,
+          results,
+        });
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(
+          502,
+          "hub_unavailable",
+          "The Docker Hub search API could not be reached.",
+          { retryable: true },
+        );
+      }
+    },
+  );
+
   app.post(
     "/api/v1/hosts/:hostId/images/pull",
     { schema: { params: hostParams, body: imagePullBody } },
@@ -838,6 +931,7 @@ export async function buildApp(
           );
         },
       );
+
       audit.record({
         actorId: user.id,
         action: "image.pull",

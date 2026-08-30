@@ -14,6 +14,7 @@ import { DashboardScreen } from "./screens/DashboardScreen.js";
 import { AuditScreen } from "./screens/AuditScreen.js";
 import { ContainersScreen } from "./screens/ContainersScreen.js";
 import { HostsScreen } from "./screens/HostsScreen.js";
+import { HubScreen } from "./screens/HubScreen.js";
 import { ResourceScreen } from "./screens/ResourceScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
 import { SurfaceScreen } from "./screens/SurfaceScreen.js";
@@ -170,16 +171,7 @@ function AuthGate() {
             />
           }
         />
-        <Route
-          path="/hub"
-          element={
-            <SurfaceScreen
-              title="Registry"
-              eyebrow="Image discovery"
-              description="Search and move images through configured OCI registries and public Hub APIs."
-            />
-          }
-        />
+        <Route path="/hub" element={<HubScreen />} />
         <Route
           path="/security"
           element={

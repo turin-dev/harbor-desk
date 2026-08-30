@@ -627,3 +627,130 @@ test("covers host re-probe, capabilities, removal, and container action routes",
   assert.equal(capsAfterRemove.statusCode, 403);
   assert.equal(capsAfterRemove.json().error.code, "host_access_denied");
 });
+
+test("normalizes Docker Hub search responses", async (t) => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const harbor = await buildApp(testConfig, {
+    hubTransport: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          query: "nginx",
+          result_count: 12,
+          results: [
+            {
+              repo_name: "library/nginx",
+              description: "Official Nginx image",
+              star_count: 30000,
+              pull_count: 9000000000,
+              is_official: true,
+              repository_type: "image",
+            },
+            { repo_name: "nginx", star_count: 900 },
+            { junk: true },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  t.after(async () => harbor.app.close());
+
+  const response = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx&limit=25",
+  });
+  assert.equal(response.statusCode, 200);
+  const data = response.json().data;
+  assert.equal(data.query, "nginx");
+  assert.equal(data.resultCount, 12);
+  assert.equal(data.results.length, 2);
+  assert.equal(data.results[0].repository, "library/nginx");
+  assert.equal(data.results[0].starCount, 30000);
+  assert.equal(data.results[0].pullCount, 9000000000);
+  assert.equal(data.results[0].isOfficial, true);
+  assert.equal(data.results[1].description, undefined);
+  assert.equal(data.results[1].isOfficial, false);
+  assert.equal(calls.length, 1);
+  assert.match(
+    calls[0]!.url,
+    /registry-1.docker\.io\/v2\/search\/repositories\?q=nginx&page_size=25\b/,
+  );
+  const events = harbor.audit.list(500);
+  assert.equal(
+    events.find((event) => event.action === "hub.search")?.resourceId,
+    "nginx",
+  );
+});
+
+test("validates Docker Hub search query input", async (t) => {
+  const harbor = await buildApp(testConfig, {
+    hubTransport: async () => new Response("{}", { status: 200 }),
+  });
+  t.after(async () => harbor.app.close());
+
+  const missing = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search",
+  });
+  assert.equal(missing.statusCode, 400);
+  assert.equal(missing.json().error.code, "validation_error");
+
+  const long = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=" + "a".repeat(129),
+  });
+  assert.equal(long.statusCode, 400);
+  assert.equal(long.json().error.code, "validation_error");
+
+  const badLimit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx&limit=51",
+  });
+  assert.equal(badLimit.statusCode, 400);
+  assert.equal(badLimit.json().error.code, "validation_error");
+});
+
+test("maps Docker Hub rate limits and unexpected responses", async (t) => {
+  const harbor = await buildApp(testConfig, {
+    hubTransport: async () => new Response(null, { status: 429 }),
+  });
+  t.after(async () => harbor.app.close());
+
+  const rateLimited = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx",
+  });
+  assert.equal(rateLimited.statusCode, 429);
+  assert.equal(rateLimited.json().error.code, "hub_rate_limited");
+  assert.equal(rateLimited.json().error.retryable, true);
+
+  const unexpected = await buildApp(testConfig, {
+    hubTransport: async () => new Response("nope", { status: 500 }),
+  });
+  t.after(async () => unexpected.app.close());
+  const response = await unexpected.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx",
+  });
+  assert.equal(response.statusCode, 502);
+  assert.equal(response.json().error.code, "hub_unavailable");
+});
+
+test("maps Docker Hub network failures to a retryable error", async (t) => {
+  const harbor = await buildApp(testConfig, {
+    hubTransport: async () => {
+      throw new Error("socket hang up");
+    },
+  });
+  t.after(async () => harbor.app.close());
+
+  const response = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx",
+  });
+  assert.equal(response.statusCode, 502);
+  const error = response.json().error;
+  assert.equal(error.code, "hub_unavailable");
+  assert.equal(error.retryable, true);
+});

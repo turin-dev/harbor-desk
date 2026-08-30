@@ -169,6 +169,21 @@ export interface ImageSummary {
   hostId: string;
 }
 
+export interface HubSearchResult {
+  repository: string;
+  description?: string;
+  starCount: number;
+  pullCount: number;
+  isOfficial: boolean;
+  repositoryType?: string;
+}
+
+export interface HubSearchResponse {
+  query: string;
+  resultCount: number;
+  results: HubSearchResult[];
+}
+
 export interface VolumeSummary {
   name: string;
   driver: string;

@@ -271,6 +271,23 @@ paths:
       responses:
         "202":
           description: Image deletion operation
+  /api/v1/hub/search:
+    get:
+      parameters:
+        - {
+            name: q,
+            in: query,
+            required: true,
+            schema: { type: string, minLength: 1, maxLength: 128 },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 25 },
+          }
+      responses:
+        "200":
+          description: Docker Hub search results
   /api/v1/hosts/{hostId}/volumes:
     get:
       parameters:
@@ -593,6 +610,26 @@ components:
         kubernetes: { type: boolean }
         extensions: { type: boolean }
         imageScan: { type: boolean }
+    HubSearchResult:
+      type: object
+      required: [repository, starCount, pullCount, isOfficial]
+      properties:
+        repository: { type: string }
+        description: { type: string }
+        starCount: { type: integer, minimum: 0 }
+        pullCount: { type: integer, minimum: 0 }
+        isOfficial: { type: boolean }
+        repositoryType: { type: string }
+    HubSearchResponse:
+      type: object
+      required: [query, resultCount, results]
+      properties:
+        query: { type: string }
+        resultCount: { type: integer, minimum: 0 }
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/HubSearchResult"
   securitySchemes:
     bearerAuth:
       type: http
