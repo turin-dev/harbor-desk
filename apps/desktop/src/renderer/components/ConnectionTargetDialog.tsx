@@ -13,6 +13,11 @@ import {
 } from "@mui/material";
 import { useConnectionStatus } from "../state/queries.js";
 import { useUiStore } from "../state/ui-store.js";
+import {
+  canSubmitConnectionTarget,
+  configureErrorMessage,
+  defaultDisplayName,
+} from "./connection-dialog.js";
 
 interface ConnectionTargetDialogProps {
   open: boolean;
@@ -37,11 +42,7 @@ export function ConnectionTargetDialog({
   useEffect(() => {
     if (!open) return;
     setEndpoint(connection.data?.endpoint ?? "");
-    setDisplayName(
-      connection.data?.mode === "gateway"
-        ? "Harbor Desk Gateway"
-        : "Docker Engine",
-    );
+    setDisplayName(defaultDisplayName(connection.data?.mode));
     setCa("");
     setCert("");
     setKey("");
@@ -74,10 +75,7 @@ export function ConnectionTargetDialog({
       showToast("Connection target detected and connected.", "success");
       onClose();
     } catch (caught) {
-      const message =
-        caught instanceof Error
-          ? caught.message
-          : "The connection target could not be configured.";
+      const message = configureErrorMessage(caught);
       setError(message);
       showToast(message, "error");
     } finally {
@@ -170,7 +168,7 @@ export function ConnectionTargetDialog({
             <Button
               type="submit"
               variant="contained"
-              disabled={saving || !endpoint.trim()}
+              disabled={saving || !canSubmitConnectionTarget(endpoint)}
             >
               {saving ? "Detecting…" : "Connect"}
             </Button>
