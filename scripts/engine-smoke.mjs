@@ -15,10 +15,14 @@ const tag = "harbor-desk-smoke-" + Date.now().toString(36);
 const containerName = tag + "-c";
 const volumeName = tag + "-v";
 const networkName = tag + "-n";
-const LINUX_BASE_IMAGE = "alpine:3.20";
+const LINUX_IMAGE_CANDIDATES = ["alpine:3.20", "alpine:3.21"];
 const LINUX_SLOW_IMAGE = "postgres:16";
-const WINDOWS_BASE_IMAGE = "mcr.microsoft.com/windows/servercore:ltsc2022";
-const WINDOWS_SLOW_IMAGE = "mcr.microsoft.com/windows/nanoserver:ltsc2022";
+const WINDOWS_IMAGE_CANDIDATES = [
+  "mcr.microsoft.com/windows/servercore:ltsc2025",
+  "mcr.microsoft.com/windows/servercore:ltsc2022",
+  "mcr.microsoft.com/windows/nanoserver:ltsc2025",
+  "mcr.microsoft.com/windows/nanoserver:ltsc2022",
+];
 
 const results = [];
 let client;
@@ -70,12 +74,39 @@ try {
 
   // A Windows Engine cannot run or even pull the Linux base image (the
   // manifest list has no windows/amd64 entry), so pick the image stack by
-  // the platform the Engine itself runs on.
+  // the platform the Engine itself runs on. Windows Server builds differ by
+  // OS version (Server 2025 is 10.0.26100, Server 2022 is 10.0.20348), so
+  // try the candidates in order and keep the first image the Engine can
+  // pull; a fresh CI runner may report a newer Windows build than any
+  // fixed tag listed here.
   const isWindowsEngine = String(probe.summary.operatingSystem ?? "")
     .toLowerCase()
     .startsWith("windows");
-  const baseImage = isWindowsEngine ? WINDOWS_BASE_IMAGE : LINUX_BASE_IMAGE;
-  const slowImage = isWindowsEngine ? WINDOWS_SLOW_IMAGE : LINUX_SLOW_IMAGE;
+  const candidates = isWindowsEngine
+    ? WINDOWS_IMAGE_CANDIDATES
+    : LINUX_IMAGE_CANDIDATES;
+  let baseImage = null;
+  for (const candidate of candidates) {
+    try {
+      await client.pullImage({ image: candidate }, () => undefined);
+      baseImage = candidate;
+      break;
+    } catch {
+      // Not pullable on this Engine (OS version mismatch or registry
+      // error); try the next candidate.
+    }
+  }
+  if (!baseImage) {
+    throw new Error(
+      "No pullable base image for " +
+        String(probe.summary.operatingSystem ?? "unknown"),
+    );
+  }
+  // The cancel-pull test needs an uncached image, so the slow image must
+  // differ from the base image that was just pulled.
+  const slowImage = isWindowsEngine
+    ? (candidates.find((candidate) => candidate !== baseImage) ?? baseImage)
+    : LINUX_SLOW_IMAGE;
   const baseCommand = isWindowsEngine
     ? { rawCommand: ["ping", "-n", "31", "127.0.0.1"] }
     : { command: "sleep 30" };
