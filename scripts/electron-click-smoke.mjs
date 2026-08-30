@@ -33,6 +33,9 @@ const { DockerEngineClient } = await import(
 );
 
 const results = [];
+// Captures renderer console output so failures can be diagnosed from
+// CI logs without interactive access to the Electron process.
+const consoleTail = [];
 function check(name, ok, detail) {
   results.push({ name, ok });
   console.log(
@@ -132,6 +135,21 @@ async function connectCdp() {
         );
       });
       const cdp = new Cdp(ws);
+      cdp.ws.addEventListener("message", (event) => {
+        let msg = null;
+        try {
+          msg = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        if (msg?.method === "Runtime.consoleAPICalled") {
+          const line = (msg.params.args ?? [])
+            .map((a) => a.value ?? a.description ?? "")
+            .join(" ");
+          consoleTail.push("[" + msg.params.type + "] " + line);
+          if (consoleTail.length > 30) consoleTail.shift();
+        }
+      });
       await cdp.send("Runtime.enable");
       await cdp.send("Page.enable");
       return cdp;
@@ -213,6 +231,8 @@ async function teardown() {
   } catch {
     /* already gone */
   }
+  for (const line of consoleTail.splice(0))
+    console.log("renderer-console  " + line);
   try {
     staticServer?.close();
   } catch {
@@ -324,16 +344,52 @@ try {
   );
   check("header Prune button rendered", true);
 
-  const opened = await evaluate(cdp, R_CLICK_PRUNE);
+  // The first click can race the renderer on slower hosts (Windows
+  // runners in particular); retry until the dialog actually opens.
+  let opened = "not-found";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    opened = await evaluate(cdp, R_CLICK_PRUNE);
+    if (opened === "clicked") {
+      const copyReady = await evaluate(cdp, R_DIALOG_TEXT)
+        .then((t) => t.includes("Prune stopped containers?"))
+        .catch(() => false);
+      if (copyReady) break;
+    }
+    await sleep(1000);
+  }
   check("opened the Prune confirm dialog", opened === "clicked", opened);
-  await waitUntil(
-    cdp,
-    () =>
-      evaluate(cdp, R_DIALOG_TEXT).then((t) =>
-        t.includes("Prune stopped containers?"),
-      ),
-    "dialog copy",
-  );
+  try {
+    await waitUntil(
+      cdp,
+      () =>
+        evaluate(cdp, R_DIALOG_TEXT).then((t) =>
+          t.includes("Prune stopped containers?"),
+        ),
+      "dialog copy",
+      120000,
+    );
+  } catch (error) {
+    const dialogText = await evaluate(cdp, R_DIALOG_TEXT).catch(() => "?");
+    const bodySnippet = await evaluate(
+      cdp,
+      "(() => (document.body.textContent || '').slice(0, 300))()",
+    ).catch(() => "?");
+    const dialogOpen = await evaluate(
+      cdp,
+      "(() => Boolean(document.querySelector('[role=dialog]')))()",
+    ).catch(() => null);
+    for (const line of consoleTail.splice(0))
+      console.log("renderer-console  " + line);
+    throw new Error(
+      (error instanceof Error ? error.message : String(error)) +
+        " | dialogOpen=" +
+        JSON.stringify(dialogOpen) +
+        " | dialog=" +
+        JSON.stringify(dialogText) +
+        " | body=" +
+        JSON.stringify(bodySnippet),
+    );
+  }
   check("dialog shows the stopped-container warning", true);
 
   const confirmed = await evaluate(cdp, R_CLICK_DIALOG_PRUNE);
