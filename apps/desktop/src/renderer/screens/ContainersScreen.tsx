@@ -48,10 +48,11 @@ import {
   Stop,
   Terminal,
 } from "@mui/icons-material";
-import type { ContainerCreateInput, ContainerSummary } from "@harbor/contracts";
+import type { ContainerSummary } from "@harbor/contracts";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
+import { buildContainerCreateInput } from "./container-create-input.js";
 import {
   useCancelOperation,
   useContainerAction,
@@ -197,102 +198,41 @@ export function ContainersScreen() {
   };
 
   const submitCreate = () => {
-    const trimmedImage = image.trim();
-    if (!trimmedImage) {
-      setFormError("An image reference is required.");
+    const result = buildContainerCreateInput({
+      image,
+      name,
+      command,
+      portRows,
+      envRows,
+      labelRows,
+      restartPolicy,
+    });
+    if (!result.ok) {
+      setFormError(result.error);
       return;
     }
-    const ports = portRows
-      .filter((row) => row.containerPort.trim().length > 0)
-      .map((row) => ({
-        containerPort: Number(row.containerPort),
-        protocol: row.protocol,
-        ...(row.hostPort.trim() ? { hostPort: Number(row.hostPort) } : {}),
-      }));
-    for (const port of ports) {
-      if (
-        !Number.isInteger(port.containerPort) ||
-        port.containerPort < 1 ||
-        port.containerPort > 65535
-      ) {
-        setFormError("Container ports must be integers from 1 to 65535.");
-        return;
-      }
-      if (
-        port.hostPort !== undefined &&
-        (!Number.isInteger(port.hostPort) ||
-          port.hostPort < 1 ||
-          port.hostPort > 65535)
-      ) {
-        setFormError("Host ports must be integers from 1 to 65535.");
-        return;
-      }
-    }
-    const seenPorts = new Set<string>();
-    for (const port of ports) {
-      const key = `${port.containerPort}/${port.protocol}`;
-      if (seenPorts.has(key)) {
-        setFormError(`Container port ${key} is mapped more than once.`);
-        return;
-      }
-      seenPorts.add(key);
-    }
-    const env = envRows
-      .map((row) => ({ name: row.name.trim(), value: row.value }))
-      .filter((row) => row.name.length > 0);
-    for (const row of env) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(row.name)) {
-        setFormError(
-          `Environment name ${row.name} is not a valid variable name.`,
-        );
-        return;
-      }
-    }
-    const labels: Record<string, string> = {};
-    for (const row of labelRows) {
-      const key = row.key.trim();
-      if (key) labels[key] = row.value;
-    }
     setFormError(undefined);
-    create.mutate(
-      {
-        image: trimmedImage,
-        ...(name.trim() ? { name: name.trim() } : {}),
-        ...(command.trim() ? { command: command.trim() } : {}),
-        ...(ports.length > 0 ? { ports } : {}),
-        ...(env.length > 0 ? { env } : {}),
-        ...(restartPolicy
-          ? {
-              restartPolicy:
-                restartPolicy as ContainerCreateInput["restartPolicy"],
-            }
-          : {}),
-        ...(Object.keys(labels).length > 0 ? { labels } : {}),
+    create.mutate(result.input, {
+      onSuccess: (operation) => {
+        setCreateOpen(false);
+        setImage("");
+        setName("");
+        setCommand("");
+        setAdvancedOpen(false);
+        setPortRows([]);
+        setEnvRows([]);
+        setLabelRows([]);
+        setRestartPolicy("");
+        reportOperation(
+          operation,
+          "Container created and started on the remote host.",
+        );
       },
-      {
-        onSuccess: (operation) => {
-          setCreateOpen(false);
-          setImage("");
-          setName("");
-          setCommand("");
-          setAdvancedOpen(false);
-          setPortRows([]);
-          setEnvRows([]);
-          setLabelRows([]);
-          setRestartPolicy("");
-          reportOperation(
-            operation,
-            "Container created and started on the remote host.",
-          );
-        },
-        onError: (error) =>
-          setFormError(
-            error instanceof Error
-              ? error.message
-              : "Container creation failed.",
-          ),
-      },
-    );
+      onError: (error) =>
+        setFormError(
+          error instanceof Error ? error.message : "Container creation failed.",
+        ),
+    });
   };
 
   if (!hosts.length) {
