@@ -292,7 +292,7 @@ export class DockerEngineClient {
         buildkit: parseApiVersion(apiVersion) >= 1.39,
         kubernetes: false,
         extensions: false,
-        imageScan: false,
+        imageScan: true,
         volumeFileBrowser: false,
       },
     };

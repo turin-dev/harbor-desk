@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { Fingerprint, Search, ShieldOutlined } from "@mui/icons-material";
+import {
+  Fingerprint,
+  ScannerOutlined,
+  Search,
+  ShieldOutlined,
+} from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -10,6 +15,8 @@ import {
   DialogContent,
   DialogTitle,
   InputAdornment,
+  Chip,
+  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -27,7 +34,16 @@ import { useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { filterRowsByQuery } from "../filter-rows.js";
-import { useHosts, useImageInspect, useImages } from "../state/queries.js";
+import {
+  useCancelOperation,
+  useCurrentUser,
+  useHosts,
+  useImageInspect,
+  useImages,
+  useOperation,
+  useScanImage,
+  useScanReport,
+} from "../state/queries.js";
 import { formatBytes, formatDate } from "../format.js";
 import { useUiStore } from "../state/ui-store.js";
 import {
@@ -38,6 +54,7 @@ import {
   summarizeImageSecurity,
   type ImageSecurityFacts,
 } from "./security-facts.js";
+import { describeScanOutcome, topVulnerabilities } from "./scan-report.js";
 
 export function SecurityScreen() {
   const [searchParams] = useSearchParams();
@@ -48,6 +65,10 @@ export function SecurityScreen() {
   const hostId = selectedHost?.id;
   const hostOnline = selectedHost?.status === "online";
   const imagesCapability = selectedHost?.capabilities.images ?? false;
+  const imageScanCapability = selectedHost?.capabilities.imageScan ?? false;
+  const { data: user } = useCurrentUser();
+  const canScan =
+    imageScanCapability && hostOnline && (user?.role ?? "viewer") !== "viewer";
   const {
     data: images = [],
     isPending,
@@ -118,7 +139,11 @@ export function SecurityScreen() {
       <PageHeader
         eyebrow="Workspace / Image security"
         title="Image security"
-        description="Read-only security facts derived from the Engine: content digests, image architecture, and host connection trust. No scan provider is attached to the gateway yet."
+        description={
+          imageScanCapability
+            ? "Engine security facts plus Trivy vulnerability scans. Scans run as a short-lived scan container on the remote host and are removed when they settle."
+            : "Read-only security facts derived from the Engine: content digests, image architecture, and host connection trust. The selected host does not advertise the imageScan capability."
+        }
         actions={
           <Stack direction="row" spacing={1}>
             <TextField
@@ -292,7 +317,7 @@ export function SecurityScreen() {
       <Dialog
         open={Boolean(selected)}
         onClose={() => setSelected(undefined)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
@@ -301,13 +326,170 @@ export function SecurityScreen() {
             : "Image"}
         </DialogTitle>
         <DialogContent>
-          {selectedFacts ? <SecurityDetail facts={selectedFacts} /> : null}
+          {selectedFacts ? (
+            <>
+              <SecurityDetail facts={selectedFacts} />
+              <ScanSection
+                key={selectedFacts.image.id}
+                imageRef={
+                  selectedFacts.image.repository + ":" + selectedFacts.image.tag
+                }
+                hostId={hostId}
+                canScan={canScan}
+              />
+            </>
+          ) : null}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelected(undefined)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+interface ScanAttempt {
+  operationId: string;
+}
+
+function severityChipColor(
+  severity: string,
+): "error" | "warning" | "info" | "default" {
+  if (severity === "CRITICAL" || severity === "HIGH") return "error";
+  if (severity === "MEDIUM") return "warning";
+  if (severity === "LOW") return "info";
+  return "default";
+}
+
+function ScanSection({
+  imageRef,
+  hostId,
+  canScan,
+}: {
+  imageRef: string;
+  hostId?: string;
+  canScan: boolean;
+}) {
+  const [attempt, setAttempt] = useState<ScanAttempt>();
+  const scan = useScanImage(hostId);
+  const cancel = useCancelOperation();
+  const operation = useOperation(attempt?.operationId);
+  const reportQuery = useScanReport(
+    hostId,
+    operation?.status === "succeeded" ? attempt?.operationId : undefined,
+  );
+  const report = reportQuery.data;
+  const running =
+    scan.isPending ||
+    operation?.status === "queued" ||
+    operation?.status === "running";
+  const outcome =
+    !running && attempt ? describeScanOutcome(operation, report) : undefined;
+
+  const startScan = () => {
+    const operationId = crypto.randomUUID();
+    setAttempt({ operationId });
+    scan.mutate({ image: imageRef, operationId });
+  };
+
+  return (
+    <Stack spacing={1.5} sx={{ mt: 1 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="body2" sx={{ fontWeight: 650 }}>
+          Vulnerability scan
+        </Typography>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<ScannerOutlined />}
+          onClick={startScan}
+          disabled={!canScan || running}
+        >
+          {running ? "Scanning…" : "Run vulnerability scan"}
+        </Button>
+      </Stack>
+      {!canScan && (
+        <Typography variant="caption" color="text.secondary">
+          Scans require the imageScan capability, an online host, and a
+          non-viewer role.
+        </Typography>
+      )}
+      {running && attempt && (
+        <Stack spacing={1}>
+          <Typography variant="body2" color="text.secondary">
+            {operation?.message ?? "Starting the Trivy scan container."}
+          </Typography>
+          <LinearProgress
+            variant={
+              typeof operation?.progress === "number"
+                ? "determinate"
+                : "indeterminate"
+            }
+            value={operation?.progress}
+          />
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => cancel.mutate(attempt.operationId)}
+            disabled={cancel.isPending}
+          >
+            Cancel scan
+          </Button>
+        </Stack>
+      )}
+      {outcome && (
+        <Alert severity={outcome.tone} onClose={() => setAttempt(undefined)}>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 650 }}>
+              {outcome.title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {outcome.body}
+            </Typography>
+          </Box>
+        </Alert>
+      )}
+      {report && !report.partial && report.vulnerabilities.length > 0 && (
+        <Stack spacing={0.75}>
+          {topVulnerabilities(report, 10).map((vulnerability) => (
+            <Stack
+              key={vulnerability.vulnerabilityId + vulnerability.package}
+              direction="row"
+              spacing={1}
+              alignItems="baseline"
+            >
+              <Chip
+                label={vulnerability.severity.toLowerCase()}
+                size="small"
+                color={severityChipColor(vulnerability.severity)}
+                sx={{ height: 18, fontSize: 11 }}
+              />
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 600, fontFamily: "monospace" }}
+                component="span"
+              >
+                {vulnerability.vulnerabilityId}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {vulnerability.package}
+                {vulnerability.installedVersion
+                  ? " " + vulnerability.installedVersion
+                  : ""}
+                {vulnerability.fixedVersion
+                  ? " → " + vulnerability.fixedVersion
+                  : ""}
+              </Typography>
+            </Stack>
+          ))}
+          {report.totalVulnerabilities > 10 && (
+            <Typography variant="caption" color="text.secondary">
+              Showing 10 of {report.totalVulnerabilities} vulnerabilities.
+            </Typography>
+          )}
+        </Stack>
+      )}
+    </Stack>
   );
 }
 

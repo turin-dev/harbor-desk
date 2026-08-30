@@ -124,6 +124,50 @@ export interface ImageBuildInput {
   buildArgs?: Record<string, string>;
 }
 
+export type ImageScanSeverity =
+  "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+
+export interface ImageScanInput {
+  /** Image reference to scan, as it appears in the host image list. */
+  image: string;
+  /**
+   * Scanner image used for the scan container. Defaults to
+   * aquasec/trivy:0.58.2. Pulled on the remote host when missing.
+   */
+  scannerImage?: string;
+  /** Comma/space-separated severities for the Trivy --severity flag. */
+  severities?: string;
+}
+
+export interface ImageScanVulnerability {
+  vulnerabilityId: string;
+  package?: string;
+  installedVersion?: string;
+  fixedVersion?: string;
+  severity: ImageScanSeverity;
+  title?: string;
+  description?: string;
+}
+
+export interface ImageScanReport {
+  /** Image reference that was scanned (the container tag). */
+  image: string;
+  /** Engine image id the reference resolved to, when available. */
+  imageId?: string;
+  scannerImage: string;
+  startedAt: string;
+  finishedAt: string;
+  totalVulnerabilities: number;
+  counts: Record<ImageScanSeverity, number>;
+  /**
+   * True when no vulnerability rows were parsed because the Trivy JSON
+   * shape was unrecognized. The raw report is still preserved in the
+   * gateway operation record for inspection.
+   */
+  partial: boolean;
+  vulnerabilities: ImageScanVulnerability[];
+}
+
 export class OperationCancelledError extends Error {
   constructor(message = "Operation cancelled.") {
     super(message);

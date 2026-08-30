@@ -13,6 +13,8 @@ import type {
   ImagePullInput,
   ImageBuildInput,
   ImageSummary,
+  ImageScanInput,
+  ImageScanReport,
   NetworkCreateInput,
   NetworkSummary,
   Operation,
@@ -283,6 +285,22 @@ export const gateway = {
           ...(operationId ? { "operation-id": operationId } : {}),
         },
       },
+    ),
+  scanImage: (hostId: string, input: ImageScanInput, operationId?: string) =>
+    request<Operation>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/images/scan`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: {
+          "idempotency-key": crypto.randomUUID(),
+          ...(operationId ? { "operation-id": operationId } : {}),
+        },
+      },
+    ),
+  getScanReport: (hostId: string, operationId: string) =>
+    request<ImageScanReport>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/images/scans/${encodeURIComponent(operationId)}`,
     ),
   getImageInspect: (hostId: string, imageId: string) =>
     request<Record<string, unknown>>(

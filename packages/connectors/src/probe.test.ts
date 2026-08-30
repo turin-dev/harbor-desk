@@ -63,7 +63,7 @@ test("probe maps Engine version and info into the summary and capability matrix"
     buildkit: true,
     kubernetes: false,
     extensions: false,
-    imageScan: false,
+    imageScan: true,
     volumeFileBrowser: false,
   });
 });

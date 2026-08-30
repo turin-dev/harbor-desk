@@ -206,6 +206,33 @@ export function useBuildImage(hostId: string | undefined) {
   });
 }
 
+export function useScanImage(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      image: string;
+      scannerImage?: string;
+      severities?: string;
+      operationId?: string;
+    }) => {
+      const operationId = withDefaultOperationId(input.operationId);
+      return gateway.scanImage(
+        hostId!,
+        {
+          image: input.image,
+          ...(input.scannerImage ? { scannerImage: input.scannerImage } : {}),
+          ...(input.severities ? { severities: input.severities } : {}),
+        },
+        operationId,
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
+    },
+  });
+}
+
 export function useCancelOperation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -226,6 +253,18 @@ export function useOperation(operationId: string | undefined) {
   });
 
   return query.data;
+}
+
+export function useScanReport(
+  hostId: string | undefined,
+  operationId: string | undefined,
+) {
+  return useQuery({
+    queryKey: ["scan-report", hostId, operationId],
+    queryFn: () => gateway.getScanReport(hostId!, operationId!),
+    enabled: Boolean(hostId && operationId),
+    retry: false,
+  });
 }
 
 export function useHubSearch(query: string, enabled = true) {

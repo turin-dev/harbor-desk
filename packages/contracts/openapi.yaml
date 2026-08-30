@@ -273,6 +273,43 @@ paths:
       responses:
         "202":
           description: Image pull operation
+  /api/v1/hosts/{hostId}/images/scan:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+        - {
+            name: operation-id,
+            in: header,
+            schema: { type: string, maxLength: 128 },
+            description: Client-generated operation id used to track scan progress via the operations endpoint.,
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageScanInput"
+      responses:
+        "202":
+          description: Image scan operation
+  /api/v1/hosts/{hostId}/images/scans/{operationId}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - {
+            name: operationId,
+            in: path,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
+      responses:
+        "200":
+          description: Vulnerability scan report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageScanReport"
   /api/v1/hosts/{hostId}/images/{imageId}/inspect:
     get:
       parameters:
@@ -587,6 +624,60 @@ components:
       required: [image]
       properties:
         image: { type: string, minLength: 1, maxLength: 512 }
+    ImageScanInput:
+      type: object
+      required: [image]
+      properties:
+        image: { type: string, minLength: 1, maxLength: 512 }
+        scannerImage: { type: string, minLength: 1, maxLength: 512 }
+        severities: { type: string, minLength: 1, maxLength: 64 }
+    ImageScanReport:
+      type: object
+      required:
+        [
+          image,
+          scannerImage,
+          startedAt,
+          finishedAt,
+          totalVulnerabilities,
+          counts,
+          partial,
+          vulnerabilities,
+        ]
+      properties:
+        image: { type: string }
+        imageId: { type: string }
+        scannerImage: { type: string }
+        startedAt: { type: string }
+        finishedAt: { type: string }
+        totalVulnerabilities: { type: integer, minimum: 0 }
+        counts:
+          type: object
+          required: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN]
+          properties:
+            CRITICAL: { type: integer, minimum: 0 }
+            HIGH: { type: integer, minimum: 0 }
+            MEDIUM: { type: integer, minimum: 0 }
+            LOW: { type: integer, minimum: 0 }
+            UNKNOWN: { type: integer, minimum: 0 }
+        partial: { type: boolean }
+        vulnerabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageScanVulnerability"
+    ImageScanVulnerability:
+      type: object
+      required: [vulnerabilityId, severity]
+      properties:
+        vulnerabilityId: { type: string }
+        package: { type: string }
+        installedVersion: { type: string }
+        fixedVersion: { type: string }
+        severity:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN]
+        title: { type: string }
+        description: { type: string }
     ImageBuildInput:
       type: object
       required: [contextTar, tag]

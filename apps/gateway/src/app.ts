@@ -16,6 +16,8 @@ import type {
   CurrentUser,
   HostRegistrationInput,
   ImagePullInput,
+  ImageScanInput,
+  ImageScanReport,
   NetworkCreateInput,
   PruneResourceKind,
   TerminalFrame,
@@ -28,6 +30,7 @@ import { AuthService } from "./services/auth.js";
 import { HostRegistry } from "./services/host-registry.js";
 import { OperationStore } from "./services/operations.js";
 import { AuditStore, type AuditInput } from "./services/audit.js";
+import { ImageScanService } from "./services/scan-runner.js";
 import type { SecretStore } from "./services/secret-store.js";
 import { HttpError, problemFromError } from "./errors.js";
 
@@ -127,6 +130,15 @@ const containerCreateBody = Type.Object({
 });
 const imagePullBody = Type.Object({
   image: Type.String({ minLength: 1, maxLength: 512 }),
+});
+const imageScanBody = Type.Object({
+  image: Type.String({ minLength: 1, maxLength: 512 }),
+  scannerImage: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+  severities: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+});
+const scanParams = Type.Object({
+  hostId: Type.String({ minLength: 1, maxLength: 128 }),
+  operationId: Type.String({ minLength: 1, maxLength: 128 }),
 });
 const buildBody = Type.Object({
   contextTar: Type.String({
@@ -286,6 +298,7 @@ export interface HarborApp {
   events: EventHub;
   operations: OperationStore;
   audit: AuditStore;
+  scans: ImageScanService;
 }
 
 export interface HarborAppDependencies {
@@ -320,6 +333,7 @@ export async function buildApp(
   });
   const operations = new OperationStore(events);
   const audit = new AuditStore();
+  const scans = new ImageScanService(registry);
   const hubTransport =
     dependencies.hubTransport ?? ((url, init) => fetch(url, init));
   const assertHostAccess = (
@@ -1031,6 +1045,92 @@ export async function buildApp(
     },
   );
 
+  app.post(
+    "/api/v1/hosts/:hostId/images/scan",
+    { schema: { params: hostParams, body: imageScanBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId } = request.params as { hostId: string };
+      assertHostAccess(user, hostId, {
+        action: "image.scan",
+        resourceKind: "image",
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: "image.scan",
+        hostId,
+        resourceKind: "image",
+        requestId: request.id,
+      });
+      const body = request.body as ImageScanInput;
+      const input = {
+        image: body.image.trim(),
+        ...(body.scannerImage
+          ? { scannerImage: body.scannerImage.trim() }
+          : {}),
+        ...(body.severities ? { severities: body.severities.trim() } : {}),
+      } satisfies ImageScanInput;
+      const operationId = getOperationId(request);
+      let report: ImageScanReport | undefined;
+      const operation = await operations.run(
+        {
+          kind: "image.scan",
+          hostId,
+          ...(operationId ? { operationId } : {}),
+          idempotencyKey: getIdempotencyKey(request),
+          requestId: request.id,
+        },
+        async (signal) => {
+          report = await scans.run({
+            hostId,
+            input,
+            signal,
+            onProgress: (percent, message) => {
+              if (operationId)
+                operations.setProgress(operationId, percent, message);
+            },
+          });
+        },
+      );
+      if (report) scans.store(operation.id, report);
+      audit.record({
+        actorId: user.id,
+        action: "image.scan",
+        hostId,
+        resourceKind: "image",
+        resourceId: input.image,
+        result: operation.status === "succeeded" ? "success" : "failure",
+        requestId: request.id,
+      });
+      return sendData(reply, operation, 202);
+    },
+  );
+
+  app.get(
+    "/api/v1/hosts/:hostId/images/scans/:operationId",
+    { schema: { params: scanParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId, operationId } = request.params as {
+        hostId: string;
+        operationId: string;
+      };
+      assertHostAccess(user, hostId, {
+        action: "image.scan",
+        resourceKind: "image",
+        requestId: request.id,
+      });
+      const report = scans.getReport(operationId);
+      if (!report)
+        throw new HttpError(
+          404,
+          "scan_report_not_found",
+          "The scan report is no longer available.",
+        );
+      return sendData(reply, report);
+    },
+  );
+
   app.get(
     "/api/v1/hosts/:hostId/images/:imageId/inspect",
     { schema: { params: imageParams } },
@@ -1695,5 +1795,5 @@ export async function buildApp(
   });
 
   await registry.start();
-  return { app, registry, events, operations, audit };
+  return { app, registry, events, operations, audit, scans };
 }

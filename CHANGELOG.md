@@ -9,6 +9,17 @@ still change between minor versions.
 
 ### Added
 
+- Vulnerability scanning: the Security screen can now run a real
+  vulnerability scan against a selected remote image. The scan runs
+  a Trivy container on the remote host through the Engine API only,
+  with a selectable severity filter, live progress, and a Cancel
+  button. The scan container is removed automatically when the scan
+  finishes, is cancelled, or fails. Scans are capability-gated (the
+  host must report image scan support) and require the operator
+  role or higher. Results show the worst severity, a per-severity
+  summary, and the top vulnerabilities; when the scanner output
+  cannot be fully parsed, the report is clearly labeled partial.
+  No simulated results are ever shown.
 - Image security surface: the placeholder `/security` route is now a
   read-only Image security screen. It derives security facts from Engine
   data already fetched by the gateway — content-digest pinning per image
