@@ -11,6 +11,7 @@ import websocket from "@fastify/websocket";
 import { Type } from "@sinclair/typebox";
 import type {
   ApiResponse,
+  ImageBuildInput,
   ContainerCreateInput,
   CurrentUser,
   HostRegistrationInput,
@@ -126,6 +127,29 @@ const containerCreateBody = Type.Object({
 });
 const imagePullBody = Type.Object({
   image: Type.String({ minLength: 1, maxLength: 512 }),
+});
+const buildBody = Type.Object({
+  contextTar: Type.String({
+    minLength: 1,
+    maxLength: 200_000_000,
+    description: "Base64-encoded tar archive of the local build context",
+  }),
+  tag: Type.String({ minLength: 1, maxLength: 512 }),
+  dockerfile: Type.Optional(Type.String({ maxLength: 255 })),
+  buildArgs: Type.Optional(
+    Type.Object(
+      {},
+      {
+        additionalProperties: Type.String({ maxLength: 255 }),
+        maxProperties: 64,
+        propertyNames: {
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*$",
+          minLength: 1,
+          maxLength: 255,
+        },
+      },
+    ),
+  ),
 });
 const pruneParams = Type.Object({
   hostId: Type.String({ minLength: 1, maxLength: 128 }),
@@ -285,6 +309,7 @@ export async function buildApp(
       },
     },
     requestIdHeader: "x-request-id",
+    bodyLimit: 300 * 1024 * 1024,
   });
   const events = new EventHub();
   const auth = new AuthService(config);
@@ -872,6 +897,67 @@ export async function buildApp(
   );
 
   app.post(
+    "/api/v1/hosts/:hostId/builds/context",
+    { schema: { params: hostParams, body: buildBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId } = request.params as { hostId: string };
+      assertHostAccess(user, hostId, {
+        action: "build.create",
+        resourceKind: "image",
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: "build.create",
+        hostId,
+        resourceKind: "image",
+        requestId: request.id,
+      });
+      const body = request.body as ImageBuildInput;
+      const context = Buffer.from(body.contextTar, "base64");
+      if (!context.length)
+        throw new HttpError(
+          400,
+          "invalid_context",
+          "The build context archive was empty.",
+        );
+      const operationId =
+        typeof request.headers["operation-id"] === "string" &&
+        (request.headers["operation-id"] as string).trim().length <= 128
+          ? (request.headers["operation-id"] as string).trim()
+          : undefined;
+      const operation = await operations.run(
+        {
+          kind: "build.upload",
+          hostId,
+          ...(operationId ? { operationId } : {}),
+          idempotencyKey: getIdempotencyKey(request),
+          requestId: request.id,
+        },
+        async (signal) => {
+          await registry.buildImage(
+            hostId,
+            {
+              tag: body.tag,
+              contextTar: context,
+              ...(body.dockerfile?.trim()
+                ? { dockerfile: body.dockerfile.trim() }
+                : {}),
+              ...(body.buildArgs ? { buildArgs: body.buildArgs } : {}),
+            },
+            (frame) => {
+              if (!frame.status || !operationId) return;
+              operations.setProgress(operationId, 50, frame.status);
+            },
+            signal,
+          );
+        },
+      );
+      return sendData(reply, operation, 202);
+    },
+  );
+
+  app.post(
     "/api/v1/hosts/:hostId/images/pull",
     { schema: { params: hostParams, body: imagePullBody } },
     async (request, reply) => {
@@ -911,11 +997,12 @@ export async function buildApp(
             (frame) => {
               if (!frame.status || frame.status === lastStatus) return;
               lastStatus = frame.status;
+              if (!operationId) return;
               const label = frame.id
                 ? `${frame.status} ${frame.id}`
                 : frame.status;
               operations.setProgress(
-                operationId ?? "",
+                operationId,
                 frame.status === "Pull complete"
                   ? 95
                   : frame.status === "Download complete"

@@ -233,6 +233,26 @@ paths:
       responses:
         "200":
           description: Remote images
+  /api/v1/hosts/{hostId}/builds/context:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/idempotencyKey"
+        - {
+            name: operation-id,
+            in: header,
+            schema: { type: string, maxLength: 128 },
+            description: Client-generated operation id used to track build progress via the operations endpoint.,
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageBuildInput"
+      responses:
+        "202":
+          description: Image build operation
   /api/v1/hosts/{hostId}/images/pull:
     post:
       parameters:
@@ -567,6 +587,27 @@ components:
       required: [image]
       properties:
         image: { type: string, minLength: 1, maxLength: 512 }
+    ImageBuildInput:
+      type: object
+      required: [contextTar, tag]
+      properties:
+        contextTar:
+          type: string
+          minLength: 1
+          maxLength: 200000000
+          description: Base64-encoded tar archive of the local build context
+        tag: { type: string, minLength: 1, maxLength: 512 }
+        dockerfile: { type: string, maxLength: 255 }
+        buildArgs:
+          type: object
+          additionalProperties: { type: string, maxLength: 255 }
+          maxProperties: 64
+          propertyNames:
+            {
+              pattern: "^[A-Za-z_][A-Za-z0-9_]*$",
+              minLength: 1,
+              maxLength: 255,
+            }
     VolumeCreateInput:
       type: object
       required: [name]

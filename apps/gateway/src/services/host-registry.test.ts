@@ -722,6 +722,112 @@ test("cancelled operations are rethrown without marking the host offline", async
   assert.equal(record.publicHost.status, "online");
 });
 
+test("image builds are rejected while offline and pass the context through when online", async () => {
+  const { registry } = makeRegistry();
+  const offline = makeRecord(clientStub(), "offline", "h-offline");
+  inject(registry, offline);
+  await assertHttpError(
+    registry.buildImage("h-offline", {
+      tag: "app:dev",
+      contextTar: Buffer.from("z"),
+    }),
+    409,
+    "host_unavailable",
+  );
+
+  const seen: Array<{ tag: string; contextTar: Buffer }> = [];
+  const online = makeRecord(
+    clientStub({
+      buildImage: async (
+        input: { tag: string; contextTar: Buffer },
+        onProgress?: (frame: { status?: string }) => void,
+      ) => {
+        seen.push(input);
+        onProgress?.({ status: "Sending build context" });
+        return "sha256:built";
+      },
+    }),
+    "online",
+    "h-build",
+  );
+  inject(registry, online);
+  const imageId = await registry.buildImage(
+    "h-build",
+    { tag: "app:dev", contextTar: Buffer.from("z") },
+    (frame) => {
+      assert.ok(frame.status === "Sending build context");
+    },
+  );
+  assert.equal(imageId, "sha256:built");
+  assert.equal(online.publicHost.status, "online");
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.tag, "app:dev");
+  assert.ok(Buffer.isBuffer(seen[0]!.contextTar));
+});
+
+test("build engine errors follow the same online/offline mapping as pulls", async () => {
+  const { registry } = makeRegistry();
+  const ok404 = makeRecord(
+    clientStub({
+      buildImage: async () => {
+        throw new EngineRequestError("no such dockerfile", 404, "nf");
+      },
+    }),
+    "online",
+    "h1",
+  );
+  inject(registry, ok404);
+  await assertHttpError(
+    registry.buildImage("h1", {
+      tag: "app:dev",
+      contextTar: Buffer.from("z"),
+    }),
+    404,
+    "resource_not_found",
+  );
+  assert.equal(ok404.publicHost.status, "online");
+
+  const cancelled = makeRecord(
+    clientStub({
+      buildImage: async () => {
+        throw { code: "operation_cancelled", message: "cancelled" };
+      },
+    }),
+    "online",
+    "h2",
+  );
+  inject(registry, cancelled);
+  await assert.rejects(
+    registry.buildImage("h2", {
+      tag: "app:dev",
+      contextTar: Buffer.from("z"),
+    }),
+    (error: unknown) =>
+      (error as { code?: string }).code === "operation_cancelled",
+  );
+  assert.equal(cancelled.publicHost.status, "online");
+
+  const net = makeRecord(
+    clientStub({
+      buildImage: async () => {
+        throw new Error("ECONNRESET");
+      },
+    }),
+    "online",
+    "h3",
+  );
+  inject(registry, net);
+  await assertHttpError(
+    registry.buildImage("h3", {
+      tag: "app:dev",
+      contextTar: Buffer.from("z"),
+    }),
+    502,
+    "engine_unavailable",
+  );
+  assert.equal(net.publicHost.status, "offline");
+});
+
 test("pruneResources dispatches by kind and re-marks online", async () => {
   const calls: string[] = [];
   const summary = { freedBytes: 123, containersDeleted: ["c9"] };

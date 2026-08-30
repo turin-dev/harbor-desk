@@ -300,3 +300,103 @@ test("builds the Docker Engine container create body from run options", async ()
     "53/udp": [{}],
   });
 });
+test("streams an image build from a tar context and captures the aux image id", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const stream = async function* () {
+    yield '{"stream":"stderr","status":"Sending build context","progressDetail":{"current":512,"total":1024}}\n';
+    yield "plain docker build log line\n";
+    yield '{"stream":"aux","id":"aux","Aux":{"ID":"sha256:deadbeef"}}\n';
+    yield '{"stream":"stdout","status":"Successfully built cafe"}\n';
+  };
+  let path = "";
+  let options: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+  } = {};
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    requested: string,
+    opts?: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    },
+  ) => {
+    path = requested;
+    options = opts ?? {};
+    return stream();
+  };
+  const frames: Array<{
+    stream?: string;
+    status?: string;
+    progressDetail?: { current?: number; total?: number };
+  }> = [];
+  const imageId = await client.buildImage(
+    {
+      tag: "app:dev",
+      contextTar: Buffer.from("tar-bytes"),
+      dockerfile: "sub/Dockerfile.test",
+      buildArgs: { MODE: "test", PADDED: " " },
+    },
+    (frame) => frames.push(frame),
+  );
+  assert.equal(imageId, "sha256:deadbeef");
+  assert.equal(
+    path,
+    "/build?t=app%3Adev&dockerfile=sub%2FDockerfile.test&buildArg=MODE%3Dtest",
+  );
+  assert.equal(options.method, "POST");
+  assert.equal(options.headers?.["content-type"], "application/tar");
+  assert.ok(Buffer.isBuffer(options.body));
+  assert.equal(frames.length, 4);
+  assert.equal(frames[0]!.status, "Sending build context");
+  assert.equal(frames[0]!.progressDetail?.total, 1024);
+  assert.equal(frames[1]!.stream, "stdout");
+  assert.equal(frames[1]!.status, "plain docker build log line");
+  assert.equal(frames[frames.length - 1]!.status, "Successfully built cafe");
+});
+
+test("aborts a running image build with a deterministic operation_cancelled error", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  const openStream = async function* () {
+    yield '{"stream":"stderr","status":"Sending build context"}\n';
+    await new Promise<void>(() => undefined);
+  };
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    _path: string,
+    options?: { signal?: AbortSignal },
+  ) => {
+    assert.equal(options?.signal, controller.signal);
+    return Promise.resolve(openStream());
+  };
+  const pending = client.buildImage(
+    { tag: "app:dev", contextTar: Buffer.from("tar-bytes") },
+    undefined,
+    controller.signal,
+  );
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(
+    pending,
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.code === "operation_cancelled" &&
+      /cancelled/i.test(error.message),
+  );
+});
+
+test("propagates engine build errors from the stream", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const stream = async function* () {
+    yield '{"error":"dockerfile parse error line 3"}\n';
+  };
+  (client as unknown as { requestStream: unknown }).requestStream = () =>
+    stream();
+  await assert.rejects(
+    client.buildImage({
+      tag: "app:dev",
+      contextTar: Buffer.from("tar-bytes"),
+    }),
+    /dockerfile parse error line 3/,
+  );
+});

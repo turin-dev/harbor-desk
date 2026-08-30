@@ -8,6 +8,7 @@ import {
   request as httpsRequest,
   type RequestOptions as HttpsRequestOptions,
 } from "node:https";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import type {
   CapabilityMatrix,
@@ -47,6 +48,22 @@ export interface PullProgressFrame {
   id?: string;
   progress?: string;
   detail?: string;
+}
+
+export interface BuildProgressFrame {
+  stream?: "stdout" | "stderr";
+  status?: string;
+  id?: string;
+  progress?: string;
+  progressDetail?: { current?: number; total?: number };
+  error?: string;
+}
+
+export interface BuildInput {
+  tag: string;
+  contextTar: Buffer;
+  dockerfile?: string;
+  buildArgs?: Record<string, string>;
 }
 
 interface RawContainer {
@@ -183,6 +200,22 @@ function digestForEvent(event: EngineEvent): string {
     .update(JSON.stringify(event))
     .digest("hex")
     .slice(0, 20);
+}
+
+export function consumeBuildFrame(
+  line: string,
+  onProgress?: (frame: BuildProgressFrame) => void,
+): void {
+  if (!line.trim()) return;
+  try {
+    const frame = JSON.parse(line) as BuildProgressFrame;
+    if (typeof frame.error === "string" && frame.error)
+      throw new EngineRequestError(frame.error, 500, line);
+    onProgress?.(frame);
+  } catch (error) {
+    if (error instanceof EngineRequestError) throw error;
+    onProgress?.({ stream: "stdout", status: line });
+  }
 }
 
 function consumePullFrame(
@@ -369,6 +402,73 @@ export class DockerEngineClient {
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
+  }
+
+  public async buildImage(
+    input: BuildInput,
+    onProgress?: (frame: BuildProgressFrame) => void,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    if (signal?.aborted) throw this.abortError();
+    const parts: string[] = ["t=" + encodeURIComponent(input.tag)];
+    const dockerfile = input.dockerfile?.trim();
+    if (dockerfile) parts.push("dockerfile=" + encodeURIComponent(dockerfile));
+    for (const [key, value] of Object.entries(input.buildArgs ?? {})) {
+      const valueText = value?.trim() ?? "";
+      if (!valueText) continue;
+      parts.push("buildArg=" + encodeURIComponent(key + "=" + valueText));
+    }
+    const query = "/build?" + parts.join("&");
+    const response = await this.requestStream(query, {
+      method: "POST",
+      body: input.contextTar,
+      headers: { "content-type": "application/tar" },
+      ...(signal ? { signal } : {}),
+    });
+    let buffer = "";
+    let imageId: string | undefined;
+    const consume = async () => {
+      for await (const chunk of response) {
+        buffer += Buffer.isBuffer(chunk)
+          ? chunk.toString("utf8")
+          : String(chunk);
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          consumeBuildFrame(line, onProgress);
+          if (line.includes('"Aux"')) {
+            try {
+              const aux = JSON.parse(line) as {
+                stream?: unknown;
+                Aux?: { ID?: string };
+              };
+              if (aux.stream === "aux" && aux.Aux?.ID) imageId = aux.Aux.ID;
+            } catch {
+              // aux frames are best-effort metadata
+            }
+          }
+        }
+      }
+      consumeBuildFrame(buffer, onProgress);
+    };
+    if (!signal) {
+      await consume();
+      return imageId;
+    }
+    let rejectRace: (error: Error) => void = () => undefined;
+    const onAbort = () => rejectRace(this.abortError());
+    try {
+      await Promise.race([
+        consume(),
+        new Promise<never>((_resolve, reject) => {
+          rejectRace = reject;
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+    return imageId;
   }
 
   public async pruneContainers(
@@ -803,9 +903,9 @@ export class DockerEngineClient {
       method: options.method ?? "GET",
       headers: {
         accept: "application/json",
-        ...(options.body === undefined
-          ? {}
-          : { "content-type": "application/json" }),
+        ...(options.body !== undefined && !Buffer.isBuffer(options.body)
+          ? { "content-type": "application/json" }
+          : {}),
         ...options.headers,
       },
       timeout: options.stream ? 0 : this.timeoutMs,
@@ -825,7 +925,11 @@ export class DockerEngineClient {
         : httpRequest(requestOptions);
 
     if (options.body !== undefined) {
-      request.write(JSON.stringify(options.body));
+      if (Buffer.isBuffer(options.body)) {
+        request.write(options.body);
+      } else {
+        request.write(JSON.stringify(options.body));
+      }
     }
     request.end();
 

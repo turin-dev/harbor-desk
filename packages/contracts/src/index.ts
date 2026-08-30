@@ -113,6 +113,17 @@ export interface ImagePullInput {
   image: string;
 }
 
+export interface ImageBuildInput {
+  /** Base64-encoded tar archive of the local build context. */
+  contextTar: string;
+  /** Image reference the completed build is tagged with. */
+  tag: string;
+  /** Context-relative Dockerfile path. Defaults to the context root. */
+  dockerfile?: string;
+  /** Dockerfile build ARG values (whitespace-separated key=value). */
+  buildArgs?: Record<string, string>;
+}
+
 export class OperationCancelledError extends Error {
   constructor(message = "Operation cancelled.") {
     super(message);

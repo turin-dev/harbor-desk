@@ -24,6 +24,8 @@ import type { GatewayConfig } from "@harbor/config";
 import {
   DockerEngineClient,
   EngineRequestError,
+  type BuildProgressFrame,
+  type BuildInput,
   type PullProgressFrame,
 } from "@harbor/connectors";
 import { HttpError } from "../errors.js";
@@ -296,6 +298,25 @@ export class HostRegistry {
     try {
       await record.client.pullImage(input, onProgress, signal);
       this.markOnline(record);
+    } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
+      this.markOfflineIfConnectionError(record, error);
+      throw this.upstreamError(error);
+    }
+  }
+
+  public async buildImage(
+    hostId: string,
+    input: BuildInput,
+    onProgress?: (frame: BuildProgressFrame) => void,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const record = this.get(hostId);
+    this.assertOnline(record);
+    try {
+      const imageId = await record.client.buildImage(input, onProgress, signal);
+      this.markOnline(record);
+      return imageId;
     } catch (error) {
       if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);

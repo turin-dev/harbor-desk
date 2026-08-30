@@ -9,6 +9,13 @@ still change between minor versions.
 
 ### Added
 
+- Remote image builds: a new Builds flow posts a base64-encoded tar of a
+  local Dockerfile context to
+  `POST /api/v1/hosts/{hostId}/builds/context` (operator role, audited)
+  with a target tag, optional dockerfile path, and build args. The
+  connector streams the Engine build over the same operation-backed path
+  as pulls, surfacing live progress frames and supporting server-side
+  cancel, and reports the resulting image id when the build succeeds.
 - Docker Hub image discovery: the Registry screen (`/hub`) now searches
   the public Docker Hub search API through the gateway
   (`GET /api/v1/hub/search`) and lists repository results with stars,
