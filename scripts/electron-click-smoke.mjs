@@ -200,11 +200,20 @@ const R_CLICK_PRUNE = `(() => {
   return "clicked";
 })()`;
 const R_DIALOG_TEXT = `(() => {
-  const dialog = document.querySelector('[role="dialog"]');
-  return dialog ? (dialog.textContent || "").slice(0, 400) : "";
+  // The AppShell sidebar Drawer is a keepMounted MUI Modal and is also
+  // a [role=dialog]; it is first in the DOM on wide (Windows) layouts,
+  // so scope to the dialog that carries the Prune warning copy.
+  const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+  const dialog = dialogs.find(
+    (d) => (d.textContent || "").includes("Prune stopped containers?"),
+  );
+  return dialog ? dialog.textContent.slice(0, 400) : "";
 })()`;
 const R_CLICK_DIALOG_PRUNE = `(() => {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+  const dialog = dialogs.find(
+    (d) => (d.textContent || "").includes("Prune stopped containers?"),
+  );
   if (!dialog) return "no-dialog";
   const buttons = Array.from(dialog.querySelectorAll("button"));
   const btn = buttons.find(
@@ -370,24 +379,18 @@ try {
     );
   } catch (error) {
     const dialogText = await evaluate(cdp, R_DIALOG_TEXT).catch(() => "?");
-    const bodySnippet = await evaluate(
+    const dialogInfo = await evaluate(
       cdp,
-      "(() => (document.body.textContent || '').slice(0, 300))()",
-    ).catch(() => "?");
-    const dialogOpen = await evaluate(
-      cdp,
-      "(() => Boolean(document.querySelector('[role=dialog]')))()",
+      "(() => Array.from(document.querySelectorAll('[role=dialog]')).map((d) => (d.textContent || '').slice(0, 120)))()",
     ).catch(() => null);
     for (const line of consoleTail.splice(0))
       console.log("renderer-console  " + line);
     throw new Error(
       (error instanceof Error ? error.message : String(error)) +
-        " | dialogOpen=" +
-        JSON.stringify(dialogOpen) +
         " | dialog=" +
         JSON.stringify(dialogText) +
-        " | body=" +
-        JSON.stringify(bodySnippet),
+        " | dialogs=" +
+        JSON.stringify(dialogInfo),
     );
   }
   check("dialog shows the stopped-container warning", true);
