@@ -626,3 +626,70 @@ test("browseVolume auto-pulls a missing helper image and reports listing errors"
   assert.equal(pulls, 1);
   assert.equal(creates, 2);
 });
+
+const WINDOWS_TSV_OUTPUT =
+  "d\t0\t2026-08-30 13:30:23\tsub\n" +
+  "f\t7\t2026-08-30 13:30:24\tharbor-browse.txt\n";
+
+test("browseVolume lists a windows volume through powershell TSV output", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+  (client as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    options?: { method?: string; body?: unknown },
+  ) => {
+    calls.push({ path, method: options?.method, body: options?.body });
+    if (path === "/info")
+      return {
+        ID: "host-1",
+        OperatingSystem: "windows",
+        Architecture: "amd64",
+        ServerVersion: "29.1.5",
+        ApiVersion: "1.50",
+        MinAPIVersion: "1.12",
+        Containers: 0,
+        ContainersRunning: 0,
+        ContainersStopped: 0,
+        Images: 0,
+        MemTotal: 0,
+      };
+    return { Id: "browse-ctr" };
+  };
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    path: string,
+  ) => {
+    calls.push({ path, method: "stream" });
+    return Promise.resolve(dockerStream(WINDOWS_TSV_OUTPUT));
+  };
+  const result = await client.browseVolume({
+    volume: "my-vol",
+    path: "/sub",
+  });
+  assert.equal(result.volume, "my-vol");
+  assert.equal(result.path, "/sub");
+  assert.deepEqual(
+    result.entries.map((entry) => [entry.name, entry.kind]),
+    [
+      ["sub", "directory"],
+      ["harbor-browse.txt", "file"],
+    ],
+  );
+  assert.ok(!("sizeBytes" in (result.entries[0] ?? {})));
+  assert.equal(result.entries[1]?.sizeBytes, 7);
+  assert.equal(result.entries[0]?.path, "/sub/sub");
+  assert.equal(result.entries[1]?.path, "/sub/harbor-browse.txt");
+  const create = calls.find((call) =>
+    call.path.startsWith("/containers/create"),
+  );
+  assert.ok(create, "expected a container create call");
+  const body = create.body as {
+    Cmd: string[];
+    HostConfig: { Mounts: Array<Record<string, unknown>> };
+  };
+  assert.equal(body.Cmd[0], "powershell.exe");
+  assert.ok(body.Cmd.join(" ").includes("Get-ChildItem"));
+  assert.ok(body.Cmd.join(" ").includes("C:\\volume/sub"));
+  assert.deepEqual(body.HostConfig.Mounts, [
+    { Type: "volume", Source: "my-vol", Target: "C:\\volume", ReadOnly: true },
+  ]);
+});

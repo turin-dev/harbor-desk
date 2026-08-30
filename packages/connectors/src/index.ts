@@ -216,7 +216,7 @@ function parseVolumeListing(
       const kind = parts[0]!;
       const size = Number.parseInt(parts[1] ?? "0", 10);
       const modifiedAt = parts[2];
-      const name = parts.slice(4).join("\t");
+      const name = parts.slice(3).join("\t");
       if (!name || name === "." || name === "..") continue;
       entries.push(
         kind === "d"
@@ -308,7 +308,7 @@ export class DockerEngineClient {
       );
     }
     this.tls = options.tls;
-    this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.timeoutMs = options.timeoutMs ?? 60_000;
   }
 
   public async probe(): Promise<EngineProbe> {
