@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { ImageScanReport } from "@harbor/contracts";
 import { HttpError } from "../errors.js";
 import {
-  buildTrivyCommand,
+  buildTrivyArgs,
   parseTrivyReport,
   ImageScanService,
   DEFAULT_SCANNER_IMAGE,
@@ -48,21 +48,42 @@ const trivyJson = JSON.stringify({
   ],
 });
 
-test("buildTrivyCommand defaults to all severities", () => {
-  assert.equal(
-    buildTrivyCommand({ image: "nginx:1.27" }),
-    "trivy image --quiet --format json --severity CRITICAL,HIGH,MEDIUM,LOW nginx:1.27",
-  );
+test("buildTrivyArgs defaults to all severities", () => {
+  assert.deepEqual(buildTrivyArgs({ image: "nginx:1.27" }), [
+    "image",
+    "--quiet",
+    "--format",
+    "json",
+    "--severity",
+    "CRITICAL,HIGH,MEDIUM,LOW",
+    "nginx:1.27",
+  ]);
 });
 
-test("buildTrivyCommand normalizes custom severities", () => {
-  assert.equal(
-    buildTrivyCommand({ image: "nginx:1.27", severities: "CRITICAL, HIGH" }),
-    "trivy image --quiet --format json --severity CRITICAL,HIGH nginx:1.27",
+test("buildTrivyArgs normalizes custom severities", () => {
+  assert.deepEqual(
+    buildTrivyArgs({ image: "nginx:1.27", severities: "CRITICAL, HIGH" }),
+    [
+      "image",
+      "--quiet",
+      "--format",
+      "json",
+      "--severity",
+      "CRITICAL,HIGH",
+      "nginx:1.27",
+    ],
   );
-  assert.equal(
-    buildTrivyCommand({ image: "nginx:1.27", severities: "  critical high " }),
-    "trivy image --quiet --format json --severity critical,high nginx:1.27",
+  assert.deepEqual(
+    buildTrivyArgs({ image: "nginx:1.27", severities: "  critical high " }),
+    [
+      "image",
+      "--quiet",
+      "--format",
+      "json",
+      "--severity",
+      "critical,high",
+      "nginx:1.27",
+    ],
   );
 });
 
@@ -135,7 +156,7 @@ interface FakeCalls {
   pullScanner: number;
   createContainer: Array<{
     name: string;
-    command: string;
+    rawCommand: string[];
     labels?: Record<string, string>;
   }>;
   actions: Array<[string, string]>;
@@ -178,7 +199,11 @@ function makeFakeRegistry(options: { exitCode?: number; logs?: string } = {}) {
     ],
     createContainer: async (
       _hostId: string,
-      input: { name: string; command: string; labels?: Record<string, string> },
+      input: {
+        name: string;
+        rawCommand: string[];
+        labels?: Record<string, string>;
+      },
     ) => {
       calls.createContainer.push(input);
       return "ctr-scan-1";
@@ -215,10 +240,15 @@ test("run orchestrates a full scan and cleans up the scan container", async () =
   const created = calls.createContainer[0];
   assert.ok(created, "expected a container create call");
   assert.ok(created.name.startsWith("harbor-scan-"));
-  assert.equal(
-    created.command,
-    "trivy image --quiet --format json --severity CRITICAL,HIGH,MEDIUM,LOW nginx:1.27",
-  );
+  assert.deepEqual(created.rawCommand, [
+    "image",
+    "--quiet",
+    "--format",
+    "json",
+    "--severity",
+    "CRITICAL,HIGH,MEDIUM,LOW",
+    "nginx:1.27",
+  ]);
   assert.deepEqual(created.labels, {
     "harbor.desk/scan": "image",
   });

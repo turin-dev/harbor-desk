@@ -653,7 +653,11 @@ export class DockerEngineClient {
   ): Promise<string> {
     const query = input.name ? `?name=${encodeURIComponent(input.name)}` : "";
     const body: Record<string, unknown> = { Image: input.image };
-    if (input.command?.trim()) body.Cmd = ["sh", "-lc", input.command.trim()];
+    if (input.rawCommand && input.rawCommand.length > 0) {
+      body.Cmd = input.rawCommand;
+    } else if (input.command?.trim()) {
+      body.Cmd = ["sh", "-lc", input.command.trim()];
+    }
     if (input.restartPolicy) body.RestartPolicy = { Name: input.restartPolicy };
     if (input.labels && Object.keys(input.labels).length)
       body.Labels = input.labels;
@@ -720,11 +724,12 @@ export class DockerEngineClient {
   public async containerLogs(
     containerId: string,
     tail = "200",
+    timestamps = true,
   ): Promise<string> {
     const query = new URLSearchParams({
       stdout: "1",
       stderr: "1",
-      timestamps: "1",
+      timestamps: timestamps ? "1" : "0",
       tail,
     });
     const response = await this.requestStream(

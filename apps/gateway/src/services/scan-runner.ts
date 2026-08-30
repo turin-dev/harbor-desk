@@ -26,17 +26,26 @@ function emptyCounts(): Record<ImageScanSeverity, number> {
   return { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, UNKNOWN: 0 };
 }
 
-export function buildTrivyCommand(input: ImageScanInput): string {
+/**
+ * Trivy ships its own ENTRYPOINT (\`trivy\`), so the scan container must
+ * pass the argv verbatim (\`rawCommand\`). The default \`sh -lc\` wrapper
+ * would make \`sh\` an argument of trivy and the scan would fail with
+ * \`unknown shorthand flag: 'l' in -lc\`.
+ */
+export function buildTrivyArgs(input: ImageScanInput): string[] {
   const severities = (input.severities ?? "CRITICAL,HIGH,MEDIUM,LOW")
     .split(/[\s,]+/)
     .filter((item) => item.length > 0)
     .join(",");
-  return (
-    "trivy image --quiet --format json --severity " +
-    severities +
-    " " +
-    input.image
-  );
+  return [
+    "image",
+    "--quiet",
+    "--format",
+    "json",
+    "--severity",
+    severities,
+    input.image,
+  ];
 }
 
 function normalizeSeverity(value: unknown): ImageScanSeverity {
@@ -206,7 +215,7 @@ export class ImageScanService {
       {
         image: scannerImage,
         name,
-        command: buildTrivyCommand(input),
+        rawCommand: buildTrivyArgs(input),
         labels: { "harbor.desk/scan": "image" },
       },
       signal,
@@ -233,6 +242,7 @@ export class ImageScanService {
             hostId,
             containerId,
             "5000",
+            false,
           );
           const report = parseTrivyReport(logs, {
             image: input.image,

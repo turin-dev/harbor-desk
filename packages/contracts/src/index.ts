@@ -77,6 +77,13 @@ export interface ContainerCreateInput {
   image: string;
   name?: string;
   command?: string;
+  /**
+   * Verbatim Engine `Cmd` (argv). When set, the connector skips the
+   * `sh -lc` command wrapping; used for images with their own
+   * entrypoint (e.g. the Trivy scanner). The image `Entrypoint` is
+   * still inherited unless overridden by the Engine create body.
+   */
+  rawCommand?: string[];
   ports?: PortMapping[];
   env?: EnvVar[];
   restartPolicy?: "no" | "always" | "on-failure" | "unless-stopped";

@@ -564,10 +564,15 @@ export class HostRegistry {
     hostId: string,
     containerId: string,
     tail = "200",
+    timestamps = true,
   ): Promise<string> {
     const record = this.get(hostId);
     try {
-      const data = await record.client.containerLogs(containerId, tail);
+      const data = await record.client.containerLogs(
+        containerId,
+        tail,
+        timestamps,
+      );
       this.markOnline(record);
       return data;
     } catch (error) {

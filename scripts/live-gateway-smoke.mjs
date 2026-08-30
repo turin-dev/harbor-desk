@@ -278,6 +278,95 @@ try {
       ),
     );
   }
+  {
+    // Real Trivy scan of an already-pulled image on the live Engine.
+    // The scanner image (aquasec/trivy:0.58.2) is pulled by the service
+    // on first use, so the first run is dominated by the scanner pull.
+    const scanOpId = randomUUID();
+    const scanStart = Date.now();
+    const scanPost = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/hosts/" + hostId + "/images/scan",
+      headers: { "operation-id": scanOpId },
+      payload: { image: "alpine:3.20", severities: "CRITICAL,HIGH" },
+    });
+    check(
+      "image scan settles 202",
+      scanPost.statusCode === 202,
+      "http=" + scanPost.statusCode,
+    );
+    const scanOp = scanPost.json().data;
+    const scanDurationMs = Date.now() - scanStart;
+    check(
+      "image scan settles as a succeeded operation",
+      scanOp?.status === "succeeded",
+      "op=" +
+        (scanOp?.status ?? "unknown") +
+        ", " +
+        (scanDurationMs / 1000).toFixed(1) +
+        "s" +
+        (scanOp?.error ? ", error=" + scanOp.error.message : ""),
+    );
+    if (scanOp?.status === "succeeded") {
+      const report = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/hosts/" + hostId + "/images/scans/" + scanOpId,
+      });
+      const data = report.json().data;
+      check(
+        "scan report is fetchable and parsed (not partial)",
+        report.statusCode === 200 &&
+          data.partial === false &&
+          typeof data.totalVulnerabilities === "number" &&
+          data.image === "alpine:3.20",
+        "http=" +
+          report.statusCode +
+          ", partial=" +
+          (data?.partial ?? "?") +
+          ", vulns=" +
+          (data?.totalVulnerabilities ?? "?"),
+      );
+      const unknownAfter = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/hosts/" + hostId + "/images/scans/nope-" + scanOpId,
+      });
+      check(
+        "unknown scan operation returns 404 scan_report_not_found",
+        unknownAfter.statusCode === 404 &&
+          unknownAfter.json().error.code === "scan_report_not_found",
+        "http=" + unknownAfter.statusCode,
+      );
+      const containersAfter = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/hosts/" + hostId + "/containers",
+      });
+      check(
+        "scan container is removed after the scan",
+        !(containersAfter.json().data ?? []).some((row) =>
+          String(row.name).startsWith("harbor-scan-"),
+        ),
+        (containersAfter.json().data ?? []).length + " containers listed",
+      );
+      const scanAudit = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/audit?limit=10",
+      });
+      check(
+        "image scan is audited",
+        (scanAudit.json().data ?? []).some(
+          (event) =>
+            event.action === "image.scan" && event.resourceId === "alpine:3.20",
+        ),
+      );
+    } else {
+      skip(
+        "live scan report assertions",
+        "scan settled " +
+          (scanOp?.status ?? "unknown") +
+          " (see previous check)",
+      );
+    }
+  }
 } catch (error) {
   check(
     "unexpected failure",

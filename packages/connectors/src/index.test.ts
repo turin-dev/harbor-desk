@@ -300,6 +300,36 @@ test("builds the Docker Engine container create body from run options", async ()
     "53/udp": [{}],
   });
 });
+test("createContainer passes rawCommand verbatim without sh -lc wrapping", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  let path = "";
+  let options: { method?: string; body?: unknown } = {};
+  (client as unknown as { requestJson: unknown }).requestJson = async (
+    requested: string,
+    opts: { body?: unknown } = {},
+  ) => {
+    path = requested;
+    options = opts;
+    return { Id: "container-2" };
+  };
+  const id = await client.createContainer({
+    image: "aquasec/trivy:0.58.2",
+    name: "scan",
+    rawCommand: ["image", "--quiet", "--format", "json", "alpine:3.20"],
+  });
+  assert.equal(id, "container-2");
+  assert.equal(path, "/containers/create?name=scan");
+  const body = options.body as Record<string, unknown>;
+  assert.deepEqual(body.Cmd, [
+    "image",
+    "--quiet",
+    "--format",
+    "json",
+    "alpine:3.20",
+  ]);
+  assert.equal(body.Entrypoint, undefined);
+  assert.equal(body.Image, "aquasec/trivy:0.58.2");
+});
 test("streams an image build from a tar context and captures the aux image id", async () => {
   const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
   const stream = async function* () {
