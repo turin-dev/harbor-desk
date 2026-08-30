@@ -19,6 +19,7 @@ import { HubScreen } from "./screens/HubScreen.js";
 import { ResourceScreen } from "./screens/ResourceScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
 import { SurfaceScreen } from "./screens/SurfaceScreen.js";
+import { SecurityScreen } from "./screens/SecurityScreen.js";
 import { TroubleshootScreen } from "./screens/TroubleshootScreen.js";
 import { AboutScreen } from "./screens/AboutScreen.js";
 import { useUiStore } from "./state/ui-store.js";
@@ -163,17 +164,7 @@ function AuthGate() {
           }
         />
         <Route path="/hub" element={<HubScreen />} />
-        <Route
-          path="/security"
-          element={
-            <SurfaceScreen
-              title="Image security"
-              eyebrow="Digest scans"
-              capability="imageScan"
-              description="Review Trivy or Grype results attached to remote image digests."
-            />
-          }
-        />
+        <Route path="/security" element={<SecurityScreen />} />
         <Route
           path="/assistant"
           element={

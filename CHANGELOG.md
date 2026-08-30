@@ -9,6 +9,15 @@ still change between minor versions.
 
 ### Added
 
+- Image security surface: the placeholder `/security` route is now a
+  read-only Image security screen. It derives security facts from Engine
+  data already fetched by the gateway — content-digest pinning per image
+  tag, layer count, OS/architecture from image inspect, image size and
+  age — plus a host connection-trust panel (mTLS vs development HTTP or
+  socket). Digest pinning is summarized as a pinned/total count, and each
+  row opens a detail dialog with the full digest and any inspect
+  limitations. No scan provider is attached to the gateway yet, so the
+  screen never presents simulated scan results.
 - Builds screen: the placeholder `/builds` route is now a working Builds
   surface. Choose a local context folder (packaged in the desktop main
   process into a deterministic USTAR tar archive), set the target image
