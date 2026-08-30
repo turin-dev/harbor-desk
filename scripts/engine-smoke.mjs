@@ -59,6 +59,31 @@ async function cleanUp() {
 
 try {
   client = new DockerEngineClient({ endpoint });
+  // A freshly provisioned runner's Engine can still be starting when the
+  // smoke begins, so wait for the endpoint before counting the probe as a
+  // real check.
+  let ready = false;
+  let lastProbeError;
+  for (let attempt = 0; attempt < 60 && !ready; attempt += 1) {
+    try {
+      await client.probe();
+      ready = true;
+    } catch (error) {
+      lastProbeError = error;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  if (!ready) {
+    check(
+      "probe",
+      false,
+      "engine not ready: " +
+        (lastProbeError instanceof Error
+          ? lastProbeError.message
+          : String(lastProbeError)),
+    );
+    process.exit(1);
+  }
 
   const probe = await client.probe();
   check(
