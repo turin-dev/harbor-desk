@@ -16,6 +16,10 @@ still change between minor versions.
   selected remote host with the existing pull operation, live progress,
   and cancel support. Hub rate limits and unreachable search APIs surface
   as explicit, retryable errors instead of silent empty states.
+- Images pull cross-link: the Images pull dialog offers a
+  "Search Docker Hub" action that opens the Registry screen with the
+  typed reference pre-filled in the Hub search, and the Registry screen
+  applies a shared ?q= query parameter on open.
 - Container run options: the create dialog now supports published ports
   (container/host port plus protocol), environment variables, a restart
   policy, and labels, and the gateway validates all run-option input

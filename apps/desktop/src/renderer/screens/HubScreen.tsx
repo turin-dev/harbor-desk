@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CloudDownload, Hub, Search } from "@mui/icons-material";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -52,8 +53,10 @@ export function HubScreen() {
   const pull = usePullImage(selectedHostId);
   const cancel = useCancelOperation();
   const showToast = useUiStore((state) => state.showToast);
-  const [reference, setReference] = useState("");
-  const [submitted, setSubmitted] = useState("");
+  const [searchParams] = useSearchParams();
+  const initialQuery = normalizeHubQuery(searchParams.get("q") ?? "");
+  const [reference, setReference] = useState(initialQuery);
+  const [submitted, setSubmitted] = useState(initialQuery);
   const [pullTarget, setPullTarget] = useState<HubSearchResult>();
   const [pullReference, setPullReference] = useState("");
   const [pullError, setPullError] = useState<string>();

@@ -49,6 +49,7 @@ import type {
   PruneResourceKind,
   VolumeSummary,
 } from "@harbor/contracts";
+import { useNavigate } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import {
@@ -133,6 +134,7 @@ export function ResourceScreen({ kind }: { kind: ResourceKind }) {
 
 function ImagesView({ hostId }: { hostId?: string }) {
   const { data: hosts = [] } = useHosts();
+  const navigate = useNavigate();
   const host = hosts.find((item) => item.id === hostId);
   const hostOnline = host?.status === "online";
   const query = useImages(
@@ -360,6 +362,20 @@ function ImagesView({ hostId }: { hostId?: string }) {
               autoFocus
               disabled={pullActive}
             />
+            <Button
+              size="small"
+              startIcon={<Search />}
+              onClick={() =>
+                navigate(
+                  pullReference.trim()
+                    ? `/hub?q=${encodeURIComponent(pullReference.trim())}`
+                    : "/hub",
+                )
+              }
+              disabled={pullActive}
+            >
+              Not sure of the reference? Search Docker Hub
+            </Button>
             {pullOperation &&
               (pullOperation.status === "queued" ||
                 pullOperation.status === "running") && (
