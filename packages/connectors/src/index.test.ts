@@ -623,8 +623,8 @@ test("browseVolume auto-pulls a missing helper image and reports listing errors"
     client.browseVolume({ volume: "my-vol", path: "/sub" }),
     /Volume listing failed: ls: \/volume\/sub: No such file or directory/,
   );
-  assert.equal(pulls, 1);
-  assert.equal(creates, 2);
+  assert.equal(pulls, 1, "the helper image is pulled exactly once");
+  assert.equal(creates, 4, "create retries reuse the pulled image");
 });
 
 const WINDOWS_TSV_OUTPUT =

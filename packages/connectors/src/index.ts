@@ -729,42 +729,75 @@ export class DockerEngineClient {
         throw error;
       }
     };
-    const created = await createBrowseContainer();
-    if (!created.Id)
-      throw new Error("Docker Engine did not return a browse container id.");
-    try {
-      if (signal?.aborted) throw this.abortError();
-      await this.actionContainer(created.Id, "start", signal);
-      const response = await this.requestStream(
-        `/containers/${created.Id}/logs?stdout=1&stderr=1&timestamps=0&follow=0`,
-        signal ? { signal } : {},
-      );
-      const output = decodeDockerStream(await collectBuffer(response, signal));
-      const entries = parseVolumeListing(output, isWindows);
-      if (entries.length === 0 && output.trim())
-        throw new Error(
-          "Volume listing failed: " +
-            (output
-              .split("\n")
-              .map((line) => line.trim())
-              .find((line) => line) ?? "unknown engine error"),
+    const sleep = (ms: number): Promise<void> =>
+      signal
+        ? new Promise<void>((resolve, reject) => {
+            if (signal.aborted) {
+              reject(this.abortError());
+              return;
+            }
+            const timer = setTimeout(resolve, ms);
+            signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(this.abortError());
+              },
+              { once: true },
+            );
+          })
+        : new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const maxBrowseAttempts = 3;
+    let lastBrowseError: unknown = null;
+    for (let attempt = 0; attempt < maxBrowseAttempts; attempt += 1) {
+      const created = await createBrowseContainer();
+      if (!created.Id)
+        throw new Error("Docker Engine did not return a browse container id.");
+      try {
+        if (signal?.aborted) throw this.abortError();
+        await this.actionContainer(created.Id, "start", signal);
+        const response = await this.requestStream(
+          `/containers/${created.Id}/logs?stdout=1&stderr=1&timestamps=0&follow=0`,
+          signal ? { signal } : {},
         );
-      const trimmedPath =
-        path.replace(/\/+$/, "") === "" ? "/" : path.replace(/\/+$/, "");
-      return {
-        volume: input.volume,
-        path,
-        entries: entries.map((entry) => ({
-          ...entry,
-          path:
-            trimmedPath === "/"
-              ? `/${entry.name}`
-              : `${trimmedPath}/${entry.name}`,
-        })),
-      };
-    } finally {
-      await this.deleteContainer(created.Id, true).catch(() => undefined);
+        const output = decodeDockerStream(
+          await collectBuffer(response, signal),
+        );
+        const entries = parseVolumeListing(output, isWindows);
+        if (entries.length === 0 && output.trim())
+          throw new Error(
+            "Volume listing failed: " +
+              (output
+                .split("\n")
+                .map((line) => line.trim())
+                .find((line) => line) ?? "unknown engine error"),
+          );
+        const trimmedPath =
+          path.replace(/\/+$/, "") === "" ? "/" : path.replace(/\/+$/, "");
+        return {
+          volume: input.volume,
+          path,
+          entries: entries.map((entry) => ({
+            ...entry,
+            path:
+              trimmedPath === "/"
+                ? `/${entry.name}`
+                : `${trimmedPath}/${entry.name}`,
+          })),
+        };
+      } catch (error) {
+        if ((error as Error & { code?: string }).code === "operation_cancelled")
+          throw error;
+        lastBrowseError = error;
+        if (attempt === maxBrowseAttempts - 1) break;
+        await sleep(1500);
+      } finally {
+        await this.deleteContainer(created.Id, true).catch(() => undefined);
+      }
     }
+    throw lastBrowseError instanceof Error
+      ? lastBrowseError
+      : new Error("Volume listing failed: unknown engine error");
   }
 
   public async listNetworks(hostId = ""): Promise<NetworkSummary[]> {
