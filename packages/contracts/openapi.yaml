@@ -373,6 +373,16 @@ paths:
       responses:
         "200":
           description: Remote volume inspect payload
+  /api/v1/hosts/{hostId}/volumes/{volumeName}/browse:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/volumeName"
+        - { name: path, in: query, schema: { type: string, default: "/" } }
+        - { name: image, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Remote volume file listing
   /api/v1/hosts/{hostId}/volumes/{volumeName}:
     delete:
       parameters:
@@ -735,6 +745,25 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 255 }
         driver: { type: string, minLength: 1, maxLength: 128 }
+    VolumeBrowseEntry:
+      type: object
+      required: [name, path, kind]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        kind: { type: string, enum: [file, directory] }
+        sizeBytes: { type: integer, minimum: 0 }
+        modifiedAt: { type: string }
+    VolumeBrowseResult:
+      type: object
+      required: [volume, path, entries]
+      properties:
+        volume: { type: string }
+        path: { type: string }
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/VolumeBrowseEntry"
     NetworkCreateInput:
       type: object
       required: [name]
@@ -764,6 +793,7 @@ components:
           kubernetes,
           extensions,
           imageScan,
+          volumeFileBrowser,
         ]
       properties:
         containers: { type: boolean }
@@ -778,6 +808,7 @@ components:
         kubernetes: { type: boolean }
         extensions: { type: boolean }
         imageScan: { type: boolean }
+        volumeFileBrowser: { type: boolean }
     HubSearchResult:
       type: object
       required: [repository, starCount, pullCount, isOfficial]

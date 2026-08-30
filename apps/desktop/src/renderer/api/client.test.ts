@@ -194,3 +194,41 @@ test("builds terminal WebSocket URLs with encoded session and ticket", async () 
     restoreWindow();
   }
 });
+
+test("lists volume files through the browse endpoint with an encoded path", async () => {
+  const restoreWindow = installWindow();
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      assert.ok(
+        String(input).endsWith(
+          "/api/v1/hosts/host-1/volumes/vol%2F1/browse?path=%2Fsub",
+        ),
+      );
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            volume: "vol/1",
+            path: "/sub",
+            entries: [
+              {
+                name: "b.txt",
+                path: "/sub/b.txt",
+                kind: "file",
+                sizeBytes: 4,
+              },
+            ],
+          },
+        }),
+      } as Response;
+    };
+    const result = await gateway.browseVolume("host-1", "vol/1", "/sub");
+    assert.equal(result.volume, "vol/1");
+    assert.equal(result.entries[0]?.name, "b.txt");
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreWindow();
+  }
+});

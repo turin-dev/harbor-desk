@@ -7,6 +7,9 @@ import {
   ContentCopy,
   DeleteOutline,
   Image as ImageIcon,
+  InsertDriveFile,
+  Folder,
+  Home,
   Lan,
   Link,
   LinkOff,
@@ -50,6 +53,7 @@ import type {
   NetworkSummary,
   Operation,
   PruneResourceKind,
+  VolumeBrowseEntry,
   VolumeSummary,
 } from "@harbor/contracts";
 import { useNavigate } from "react-router-dom";
@@ -74,6 +78,7 @@ import {
   useNetworks,
   useOperation,
   usePruneResources,
+  useVolumeBrowse,
   useVolumeInspect,
   useVolumes,
 } from "../state/queries.js";
@@ -818,6 +823,15 @@ function VolumesView({ hostId }: { hostId?: string }) {
         query={selectedInspect}
         onClose={() => setSelected(undefined)}
         onCopy={(value) => copyValue(value, showToast)}
+        children={
+          selected && (host?.capabilities.volumeFileBrowser ?? false) ? (
+            <VolumeBrowsePanel
+              hostId={hostId}
+              volumeName={selected.name}
+              enabled={Boolean(hostOnline)}
+            />
+          ) : undefined
+        }
       />
       <Dialog
         open={createOpen}
@@ -1554,6 +1568,163 @@ function CopyCell({
         </IconButton>
       </Tooltip>
     </Stack>
+  );
+}
+
+function joinVolumePath(path: string, name: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === "" ? `/${name}` : `/${trimmed}/${name}`;
+}
+
+function VolumeBrowsePanel({
+  hostId,
+  volumeName,
+  enabled,
+}: {
+  hostId?: string;
+  volumeName: string;
+  enabled: boolean;
+}) {
+  const [path, setPath] = useState("/");
+  const browse = useVolumeBrowse(
+    enabled ? hostId : undefined,
+    volumeName,
+    path,
+  );
+  const segments = path.split("/").filter((part) => part);
+  const navigateTo = (target: string) => setPath(target);
+  const pathFor = (count: number) =>
+    count === 0 ? "/" : "/" + segments.slice(0, count).join("/");
+  return (
+    <Box
+      sx={{
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 1,
+        p: 1.5,
+        mb: 1.5,
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          alignItems="center"
+          sx={{ flex: 1, minWidth: 0 }}
+        >
+          <Button
+            size="small"
+            startIcon={<Home sx={{ fontSize: 14 }} />}
+            onClick={() => navigateTo("/")}
+            disabled={!enabled || path === "/"}
+            sx={{ textTransform: "none", py: 0 }}
+          >
+            root
+          </Button>
+          {segments.map((segment, index) => (
+            <Stack
+              direction="row"
+              spacing={0.5}
+              alignItems="center"
+              key={segment}
+            >
+              <Typography color="text.disabled">/</Typography>
+              <Button
+                size="small"
+                onClick={() => navigateTo(pathFor(index + 1))}
+                disabled={!enabled || index + 1 === segments.length}
+                sx={{ textTransform: "none", py: 0 }}
+              >
+                {segment}
+              </Button>
+            </Stack>
+          ))}
+        </Stack>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<Refresh />}
+          onClick={() => void browse.refetch()}
+          disabled={!enabled || browse.isFetching}
+        >
+          Refresh
+        </Button>
+      </Stack>
+      {browse.isLoading && (
+        <Box sx={{ display: "grid", placeItems: "center", py: 4 }}>
+          <CircularProgress size={22} aria-label="Loading volume files" />
+        </Box>
+      )}
+      {browse.isError && (
+        <Typography color="error" variant="body2">
+          {(browse.error as Error)?.message ??
+            "The gateway could not list this volume."}
+        </Typography>
+      )}
+      {!browse.isLoading && !browse.isError && (
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell align="right">Size</TableCell>
+              <TableCell>Modified</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {browse.data?.entries.length ? (
+              browse.data.entries.map((entry: VolumeBrowseEntry) => (
+                <TableRow
+                  key={entry.path}
+                  hover
+                  sx={
+                    entry.kind === "directory"
+                      ? {
+                          cursor: "pointer",
+                          "&:hover td": { bgcolor: "action.hover" },
+                        }
+                      : undefined
+                  }
+                  onClick={
+                    entry.kind === "directory"
+                      ? () => navigateTo(joinVolumePath(path, entry.name))
+                      : undefined
+                  }
+                >
+                  <TableCell>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {entry.kind === "directory" ? (
+                        <Folder
+                          sx={{ fontSize: 16, color: "text.secondary" }}
+                        />
+                      ) : (
+                        <InsertDriveFile
+                          sx={{ fontSize: 16, color: "text.secondary" }}
+                        />
+                      )}
+                      <Typography variant="body2" noWrap>
+                        {entry.name}
+                      </Typography>
+                    </Stack>
+                  </TableCell>
+                  <TableCell align="right">
+                    {formatBytes(entry.sizeBytes)}
+                  </TableCell>
+                  <TableCell>{formatDate(entry.modifiedAt)}</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={3}>
+                  <Typography variant="body2" color="text.secondary">
+                    This folder is empty.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      )}
+    </Box>
   );
 }
 

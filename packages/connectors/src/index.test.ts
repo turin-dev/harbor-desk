@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DockerEngineClient, HttpError } from "./index.js";
+import { DockerEngineClient, EngineRequestError, HttpError } from "./index.js";
 test("accepts server-side HTTPS Engine endpoints and rejects unsupported protocols", () => {
   assert.doesNotThrow(
     () => new DockerEngineClient({ endpoint: "https://engine.internal:2376" }),
@@ -455,4 +455,174 @@ test("propagates engine build errors from the stream", async () => {
     }),
     /dockerfile parse error line 3/,
   );
+});
+
+function dockerStream(payload: string): AsyncGenerator<Buffer, void, unknown> {
+  return (async function* () {
+    const body = Buffer.from(payload, "utf8");
+    const frame = Buffer.alloc(8 + body.length);
+    frame.writeUInt8(1, 0);
+    frame.writeUInt32BE(body.length, 4);
+    body.copy(frame, 8);
+    yield frame;
+  })();
+}
+
+const ALPINE_LS_OUTPUT =
+  "total 16\n" +
+  "drwxr-xr-x    3 root     root          4096 2026-08-30 13:30:23 +0000 .\n" +
+  "drwxr-xr-x    1 root     root          4096 2026-08-30 13:30:24 +0000 ..\n" +
+  "-rw-r--r--    1 root     root             7 2026-08-30 13:30:23 +0000 harbor-browse.txt\n" +
+  "drwxr-xr-x    2 root     root          4096 2026-08-30 13:30:23 +0000 sub\n";
+
+test("createContainer maps volumeMounts to read-only HostConfig mounts", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+  (client as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    options?: { method?: string; body?: unknown },
+  ) => {
+    calls.push({ path, method: options?.method, body: options?.body });
+    return { Id: "mounted-ctr" };
+  };
+  const id = await client.createContainer({
+    image: "alpine:3.20",
+    volumeMounts: [
+      { source: "data-vol", target: "/data", readWrite: true },
+      { source: "ro-vol", target: "/ro", readWrite: false },
+    ],
+  });
+  assert.equal(id, "mounted-ctr");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.path, "/containers/create");
+  assert.deepEqual((calls[0]?.body as { HostConfig: unknown }).HostConfig, {
+    Mounts: [
+      { Type: "volume", Source: "data-vol", Target: "/data", ReadOnly: false },
+      { Type: "volume", Source: "ro-vol", Target: "/ro", ReadOnly: true },
+    ],
+  });
+});
+
+test("browseVolume lists a volume through a temporary read-only container", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+  (client as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    options?: { method?: string; body?: unknown },
+  ) => {
+    calls.push({ path, method: options?.method, body: options?.body });
+    if (path === "/info")
+      return {
+        ID: "host-1",
+        OperatingSystem: "linux",
+        Architecture: "amd64",
+        ServerVersion: "27.0.0",
+        ApiVersion: "1.47",
+        MinAPIVersion: "1.12",
+        Containers: 0,
+        ContainersRunning: 0,
+        ContainersStopped: 0,
+        Images: 0,
+        MemTotal: 0,
+      };
+    return { Id: "browse-ctr" };
+  };
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    path: string,
+  ) => {
+    calls.push({ path, method: "stream" });
+    return Promise.resolve(dockerStream(ALPINE_LS_OUTPUT));
+  };
+  const result = await client.browseVolume({
+    volume: "my-vol",
+    path: "/sub",
+  });
+  assert.equal(result.volume, "my-vol");
+  assert.equal(result.path, "/sub");
+  assert.deepEqual(
+    result.entries.map((entry) => [entry.name, entry.kind]),
+    [
+      ["harbor-browse.txt", "file"],
+      ["sub", "directory"],
+    ],
+  );
+  assert.equal(result.entries[0]?.sizeBytes, 7);
+  assert.equal(result.entries[0]?.modifiedAt, "2026-08-30 13:30:23");
+  assert.ok(!("sizeBytes" in (result.entries[1] ?? {})));
+  assert.equal(result.entries[1]?.path, "/sub/sub");
+  const create = calls.find((call) =>
+    call.path.startsWith("/containers/create"),
+  );
+  assert.ok(create, "expected a container create call");
+  const body = create.body as {
+    Cmd: string[];
+    HostConfig: { Mounts: Array<Record<string, unknown>> };
+  };
+  assert.deepEqual(body.Cmd, ["/bin/ls", "-la", "--full-time", "/volume/sub"]);
+  assert.deepEqual(body.HostConfig.Mounts, [
+    { Type: "volume", Source: "my-vol", Target: "/volume", ReadOnly: true },
+  ]);
+  assert.equal(
+    calls.filter((call) => call.path === "/containers/browse-ctr?force=1")
+      .length,
+    1,
+  );
+  assert.equal(
+    calls.find((call) => call.path === "/containers/browse-ctr?force=1")
+      ?.method,
+    "DELETE",
+  );
+});
+
+test("browseVolume auto-pulls a missing helper image and reports listing errors", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  let creates = 0;
+  (client as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    options?: { method?: string; body?: unknown },
+  ) => {
+    if (path === "/info")
+      return {
+        ID: "host-1",
+        OperatingSystem: "linux",
+        Architecture: "amd64",
+        ServerVersion: "27.0.0",
+        ApiVersion: "1.47",
+        MinAPIVersion: "1.12",
+        Containers: 0,
+        ContainersRunning: 0,
+        ContainersStopped: 0,
+        Images: 0,
+        MemTotal: 0,
+      };
+    if (path.startsWith("/containers/create")) {
+      creates += 1;
+      if (creates === 1)
+        throw new EngineRequestError(
+          "Docker Engine returned HTTP 404",
+          404,
+          '{"message":"pull access denied for alpine, repository does not exist"}',
+        );
+      return { Id: "browse-ctr" };
+    }
+    return { Id: "browse-ctr" };
+  };
+  let pulls = 0;
+  (client as unknown as { pullImage: unknown }).pullImage = async (input: {
+    image: string;
+  }) => {
+    pulls += 1;
+    assert.equal(input.image, "alpine:3.20");
+  };
+  const errorStream = (message: string) => {
+    (client as unknown as { requestStream: unknown }).requestStream = () =>
+      Promise.resolve(dockerStream(message));
+  };
+  errorStream("ls: /volume/sub: No such file or directory\n");
+  await assert.rejects(
+    client.browseVolume({ volume: "my-vol", path: "/sub" }),
+    /Volume listing failed: ls: \/volume\/sub: No such file or directory/,
+  );
+  assert.equal(pulls, 1);
+  assert.equal(creates, 2);
 });

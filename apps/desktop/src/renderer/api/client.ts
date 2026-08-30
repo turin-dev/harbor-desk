@@ -22,6 +22,7 @@ import type {
   PruneResourceKind,
   PruneSummary,
   TerminalSession,
+  VolumeBrowseResult,
   VolumeCreateInput,
   VolumeSummary,
 } from "@harbor/contracts";
@@ -328,6 +329,10 @@ export const gateway = {
   getVolumeInspect: (hostId: string, volumeName: string) =>
     request<Record<string, unknown>>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/volumes/${encodeURIComponent(volumeName)}/inspect`,
+    ),
+  browseVolume: (hostId: string, volumeName: string, path = "/") =>
+    request<VolumeBrowseResult>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/volumes/${encodeURIComponent(volumeName)}/browse?path=${encodeURIComponent(path)}`,
     ),
   deleteVolume: (hostId: string, volumeName: string, force = false) =>
     request<Operation>(

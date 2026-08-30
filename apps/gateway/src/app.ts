@@ -72,6 +72,10 @@ const volumeParams = Type.Object({
   hostId: Type.String({ minLength: 1, maxLength: 128 }),
   volumeName: Type.String({ minLength: 1, maxLength: 255 }),
 });
+const volumeBrowseQuery = Type.Object({
+  path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
+  image: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+});
 const networkParams = Type.Object({
   hostId: Type.String({ minLength: 1, maxLength: 128 }),
   networkId: Type.String({ minLength: 1, maxLength: 256 }),
@@ -1326,6 +1330,40 @@ export async function buildApp(
         requestId: request.id,
       });
       return sendData(reply, await registry.inspectVolume(hostId, volumeName));
+    },
+  );
+
+  app.get(
+    "/api/v1/hosts/:hostId/volumes/:volumeName/browse",
+    { schema: { params: volumeParams, querystring: volumeBrowseQuery } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId, volumeName } = request.params as {
+        hostId: string;
+        volumeName: string;
+      };
+      assertHostAccess(user, hostId, {
+        action: "volume.browse",
+        resourceKind: "volume",
+        resourceId: volumeName,
+        requestId: request.id,
+      });
+      const query = request.query as { path?: string; image?: string };
+      const result = await registry.browseVolume(hostId, {
+        volume: volumeName,
+        path: query.path ?? "/",
+        ...(query.image ? { image: query.image } : {}),
+      });
+      audit.record({
+        actorId: user.id,
+        action: "volume.browse",
+        hostId,
+        resourceKind: "volume",
+        resourceId: volumeName,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, result);
     },
   );
 

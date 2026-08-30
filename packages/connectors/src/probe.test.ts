@@ -64,7 +64,7 @@ test("probe maps Engine version and info into the summary and capability matrix"
     kubernetes: false,
     extensions: false,
     imageScan: true,
-    volumeFileBrowser: false,
+    volumeFileBrowser: true,
   });
 });
 

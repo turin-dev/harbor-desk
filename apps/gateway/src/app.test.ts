@@ -273,7 +273,7 @@ test("surfaces pull progress through operation polling for a live Engine", async
       kubernetes: false,
       extensions: false,
       imageScan: false,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
@@ -348,7 +348,7 @@ test("cancels a running pull, aborts the Engine request, and keeps the host onli
       kubernetes: false,
       extensions: false,
       imageScan: false,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
@@ -463,7 +463,7 @@ test("surfaces build progress through operation polling for a live Engine", asyn
       kubernetes: false,
       extensions: false,
       imageScan: false,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
@@ -568,7 +568,7 @@ test("cancels a running build, aborts the Engine request, and keeps the host onl
       kubernetes: false,
       extensions: false,
       imageScan: false,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
@@ -729,7 +729,7 @@ test("cancels a running prune, aborts the Engine request, and keeps the host onl
       kubernetes: false,
       extensions: false,
       imageScan: false,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
   records.client.createEventStream = async () => (async function* () {})();
@@ -1005,7 +1005,7 @@ function scanProbeStub() {
       kubernetes: false,
       extensions: false,
       imageScan: true,
-      volumeFileBrowser: false,
+      volumeFileBrowser: true,
     },
   });
 }
@@ -1251,5 +1251,67 @@ test("attaches and detaches containers from remote networks", async (t) => {
         event.action === "network.attach" && event.result === "success",
     ),
     "expected the network attach audit event",
+  );
+});
+
+test("browses remote volume files through the gateway and records the audit event", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Volume browse engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const records = (
+    harbor.registry as unknown as {
+      records: Map<string, { client: Record<string, unknown> }>;
+    }
+  ).records.get(host.id);
+  assert.ok(records, "expected the seeded host record");
+  records.client.probe = scanProbeStub();
+  records.client.createEventStream = async () => (async function* () {})();
+  records.client.requestStream = async () => (async function* () {})();
+  let browseInput: { volume?: string; path?: string } = {};
+  records.client.browseVolume = async (input: {
+    volume?: string;
+    path?: string;
+  }) => {
+    browseInput = input;
+    return {
+      volume: input.volume ?? "",
+      path: input.path ?? "/",
+      entries: [
+        {
+          name: "harbor-browse.txt",
+          path: "/harbor-browse.txt",
+          kind: "file",
+          sizeBytes: 7,
+        },
+      ],
+    };
+  };
+  await harbor.registry.test(host.id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await harbor.registry.test(host.id);
+
+  const response = await harbor.app.inject({
+    method: "GET",
+    url: `/api/v1/hosts/${host.id}/volumes/my-vol/browse?path=%2Fsub`,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.volume, "my-vol");
+  assert.equal(response.json().data.path, "/sub");
+  assert.equal(response.json().data.entries[0]?.name, "harbor-browse.txt");
+  assert.deepEqual(browseInput, { volume: "my-vol", path: "/sub" });
+
+  const audit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/audit?limit=50",
+  });
+  assert.ok(
+    (audit.json().data ?? []).some(
+      (event: { action: string; result: string }) =>
+        event.action === "volume.browse" && event.result === "success",
+    ),
+    "expected the volume browse audit event",
   );
 });

@@ -18,6 +18,8 @@ import type {
   NetworkCreateInput,
   NetworkSummary,
   TerminalSession,
+  VolumeBrowseInput,
+  VolumeBrowseResult,
   VolumeCreateInput,
   VolumeSummary,
 } from "@harbor/contracts";
@@ -391,6 +393,23 @@ export class HostRegistry {
       this.markOnline(record);
       return data;
     } catch (error) {
+      this.markOfflineIfConnectionError(record, error);
+      throw this.upstreamError(error);
+    }
+  }
+
+  public async browseVolume(
+    hostId: string,
+    input: VolumeBrowseInput,
+    signal?: AbortSignal,
+  ): Promise<VolumeBrowseResult> {
+    const record = this.get(hostId);
+    try {
+      const result = await record.client.browseVolume(input, signal);
+      this.markOnline(record);
+      return result;
+    } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
       this.markOfflineIfConnectionError(record, error);
       throw this.upstreamError(error);
     }

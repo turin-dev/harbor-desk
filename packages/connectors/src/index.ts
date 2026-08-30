@@ -22,6 +22,9 @@ import type {
   NetworkSummary,
   NetworkAttachInput,
   NetworkCreateInput,
+  VolumeBrowseEntry,
+  VolumeBrowseInput,
+  VolumeBrowseResult,
   VolumeCreateInput,
   VolumeSummary,
 } from "@harbor/contracts";
@@ -196,6 +199,57 @@ function toDate(seconds: number | undefined): string | undefined {
     : undefined;
 }
 
+const LINUX_LS_LINE =
+  /^([-dlcbsp])([\w-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([\w+-]+)\s+(.+)$/;
+
+function parseVolumeListing(
+  output: string,
+  isWindows: boolean,
+): VolumeBrowseEntry[] {
+  const entries: VolumeBrowseEntry[] = [];
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line) continue;
+    if (isWindows) {
+      const parts = line.split("\t");
+      if (parts.length < 4) continue;
+      const kind = parts[0]!;
+      const size = Number.parseInt(parts[1] ?? "0", 10);
+      const modifiedAt = parts[2];
+      const name = parts.slice(4).join("\t");
+      if (!name || name === "." || name === "..") continue;
+      entries.push(
+        kind === "d"
+          ? { name, path: "", kind: "directory", modifiedAt }
+          : { name, path: "", kind: "file", sizeBytes: size, modifiedAt },
+      );
+      continue;
+    }
+    if (line.startsWith("total ")) continue;
+    const match = LINUX_LS_LINE.exec(line);
+    if (!match) continue;
+    const name = match[7];
+    if (!name || name === "." || name === "..") continue;
+    if (match[1] === "d") {
+      entries.push({
+        name,
+        path: "",
+        kind: "directory",
+        modifiedAt: `${match[4]} ${match[5]}`,
+      });
+      continue;
+    }
+    entries.push({
+      name,
+      path: "",
+      kind: "file",
+      sizeBytes: Number.parseInt(match[3] ?? "0", 10),
+      modifiedAt: `${match[4]} ${match[5]}`,
+    });
+  }
+  return entries;
+}
+
 function digestForEvent(event: EngineEvent): string {
   return createHash("sha256")
     .update(JSON.stringify(event))
@@ -294,7 +348,7 @@ export class DockerEngineClient {
         kubernetes: false,
         extensions: false,
         imageScan: true,
-        volumeFileBrowser: false,
+        volumeFileBrowser: true,
       },
     };
   }
@@ -597,6 +651,122 @@ export class DockerEngineClient {
     );
   }
 
+  public async browseVolume(
+    input: VolumeBrowseInput,
+    signal?: AbortSignal,
+  ): Promise<VolumeBrowseResult> {
+    const operatingSystem =
+      input.operatingSystem ??
+      (await this.getInfo()).operatingSystem ??
+      "linux";
+    const isWindows = /windows/i.test(operatingSystem);
+    const path = input.path ?? "/";
+    for (const segment of path.split("/"))
+      if (segment === "..")
+        throw new Error("Volume browse paths cannot contain .. segments.");
+    const listPath = isWindows
+      ? "C:\\volume" + (path === "/" ? "" : path)
+      : path === "/"
+        ? "/volume"
+        : "/volume" + path;
+    const image =
+      input.image ??
+      (isWindows
+        ? "mcr.microsoft.com/windows/servercore:ltsc2025"
+        : "alpine:3.20");
+    const command = isWindows
+      ? [
+          "powershell.exe",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Get-ChildItem -Force -LiteralPath '" +
+            listPath.replace(/'/g, "''") +
+            "' | ForEach-Object { $kind = if ($_.PSIsContainer) { 'd' } else { 'f' }; $size = if ($_.PSIsContainer) { 0 } else { $_.Length }; $time = $_.LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss'); [string]::Join([char]9, @($kind, [string]$size, $time, $_.Name)) }",
+        ]
+      : ["/bin/ls", "-la", "--full-time", listPath];
+    const createBrowseContainer = async (): Promise<RawCreateResponse> => {
+      const createOptions = {
+        method: "POST",
+        body: {
+          Image: image,
+          Cmd: command,
+          RestartPolicy: { Name: "no" },
+          HostConfig: {
+            Mounts: [
+              {
+                Type: "volume",
+                Source: input.volume,
+                Target: isWindows ? "C:\\volume" : "/volume",
+                ReadOnly: true,
+              },
+            ],
+          },
+        },
+        ...(signal ? { signal } : {}),
+      };
+      try {
+        return await this.requestJson<RawCreateResponse>(
+          `/containers/create?name=${encodeURIComponent(
+            `harbor-browse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          )}`,
+          createOptions,
+        );
+      } catch (error) {
+        if (
+          error instanceof EngineRequestError &&
+          error.statusCode === 404 &&
+          /image|not found|pull access denied/i.test(error.responseBody)
+        ) {
+          await this.pullImage({ image }, () => undefined, signal);
+          return await this.requestJson<RawCreateResponse>(
+            `/containers/create?name=${encodeURIComponent(
+              `harbor-browse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            )}`,
+            createOptions,
+          );
+        }
+        throw error;
+      }
+    };
+    const created = await createBrowseContainer();
+    if (!created.Id)
+      throw new Error("Docker Engine did not return a browse container id.");
+    try {
+      if (signal?.aborted) throw this.abortError();
+      await this.actionContainer(created.Id, "start", signal);
+      const response = await this.requestStream(
+        `/containers/${created.Id}/logs?stdout=1&stderr=1&timestamps=0&follow=0`,
+        signal ? { signal } : {},
+      );
+      const output = decodeDockerStream(await collectBuffer(response, signal));
+      const entries = parseVolumeListing(output, isWindows);
+      if (entries.length === 0 && output.trim())
+        throw new Error(
+          "Volume listing failed: " +
+            (output
+              .split("\n")
+              .map((line) => line.trim())
+              .find((line) => line) ?? "unknown engine error"),
+        );
+      const trimmedPath =
+        path.replace(/\/+$/, "") === "" ? "/" : path.replace(/\/+$/, "");
+      return {
+        volume: input.volume,
+        path,
+        entries: entries.map((entry) => ({
+          ...entry,
+          path:
+            trimmedPath === "/"
+              ? `/${entry.name}`
+              : `${trimmedPath}/${entry.name}`,
+        })),
+      };
+    } finally {
+      await this.deleteContainer(created.Id, true).catch(() => undefined);
+    }
+  }
+
   public async listNetworks(hostId = ""): Promise<NetworkSummary[]> {
     const rows = await this.requestJson<RawNetwork[]>("/networks");
     return rows.map((row) => ({
@@ -709,6 +879,16 @@ export class DockerEngineClient {
       }
       body.ExposedPorts = exposedPorts;
       body.PortBindings = portBindings;
+    }
+    if (input.volumeMounts?.length) {
+      body.HostConfig = {
+        Mounts: input.volumeMounts.map((mount) => ({
+          Type: "volume",
+          Source: mount.source,
+          Target: mount.target,
+          ReadOnly: !(mount.readWrite ?? true),
+        })),
+      };
     }
     const response = await this.requestJson<RawCreateResponse>(
       `/containers/create${query}`,

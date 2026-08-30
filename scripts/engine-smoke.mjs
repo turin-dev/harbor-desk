@@ -29,6 +29,7 @@ let client;
 let createdContainer = null;
 let createdVolume = false;
 let createdNetworkId = null;
+let browseWriterId = null;
 
 function check(name, ok, detail) {
   results.push({ name, ok });
@@ -46,6 +47,10 @@ async function cleanUp() {
   if (createdContainer) {
     await client.deleteContainer(createdContainer, true).catch(() => undefined);
     createdContainer = null;
+  }
+  if (browseWriterId) {
+    await client.deleteContainer(browseWriterId, true).catch(() => undefined);
+    browseWriterId = null;
   }
   if (createdVolume) {
     await client.deleteVolume(volumeName, true).catch(() => undefined);
@@ -157,6 +162,20 @@ try {
   await client.pullImage({ image: baseImage }, () => undefined);
   check("base image available for the container lifecycle", true, baseImage);
 
+  // A large pull can leave the Engine still unpacking layers; the
+  // createNetwork check below would otherwise time out right after a
+  // fresh multi-GB pull. Warm up the request path first.
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    try {
+      await client.listNetworks();
+      break;
+    } catch (error) {
+      if (attempt === 14) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  check("engine responsive after image pull", true);
+
   await client.createVolume({ name: volumeName });
   createdVolume = true;
   const volumes = await client.listVolumes();
@@ -165,6 +184,79 @@ try {
     volumes.some((item) => item.name === volumeName),
     volumeName,
   );
+
+  // Write marker files through a mounted container, then verify the
+  // read-only volume browser can list and navigate into them.
+  const writerTarget = isWindowsEngine ? "C:\\volume" : "/volume";
+  const writerCommand = isWindowsEngine
+    ? {
+        rawCommand: [
+          "powershell.exe",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "New-Item -ItemType Directory -Force -Path 'C:\\volume\\sub' | Out-Null; Set-Content -Path 'C:\\volume\\harbor-browse.txt' -Value 'harbor'; Set-Content -Path 'C:\\volume\\sub\\b.txt' -Value 'sub'",
+        ],
+      }
+    : {
+        rawCommand: [
+          "/bin/sh",
+          "-c",
+          "mkdir -p /volume/sub && echo harbor > /volume/harbor-browse.txt && echo sub > /volume/sub/b.txt",
+        ],
+      };
+  browseWriterId = await client.createContainer({
+    image: baseImage,
+    restartPolicy: "no",
+    ...writerCommand,
+    volumeMounts: [{ source: volumeName, target: writerTarget }],
+  });
+  await client.actionContainer(browseWriterId, "start");
+  let writerDone = false;
+  for (let attempt = 0; attempt < 50 && !writerDone; attempt += 1) {
+    const row = (await client.listContainers(true)).find(
+      (item) => item.id === browseWriterId,
+    );
+    writerDone = row?.state === "exited" || row?.state === "dead";
+    if (!writerDone) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  check("volume marker container finished", writerDone);
+  await client.deleteContainer(browseWriterId, true);
+  browseWriterId = null;
+
+  // nanoserver fallback images ship no PowerShell, so the Windows browser
+  // path is only exercised when the engine base image supports it.
+  const browseSupported = !isWindowsEngine || baseImage.includes("servercore");
+  if (browseSupported) {
+    const browseRoot = await client.browseVolume({
+      volume: volumeName,
+      path: "/",
+      image: baseImage,
+    });
+    const rootNames = browseRoot.entries.map((entry) => entry.name);
+    check(
+      "volume browse lists the marker files",
+      rootNames.includes("harbor-browse.txt") && rootNames.includes("sub"),
+      "entries=" + rootNames.join(","),
+    );
+    const browseSub = await client.browseVolume({
+      volume: volumeName,
+      path: "/sub",
+      image: baseImage,
+    });
+    const subNames = browseSub.entries.map((entry) => entry.name);
+    check(
+      "volume browse navigates into a subfolder",
+      subNames.includes("b.txt"),
+      "entries=" + subNames.join(","),
+    );
+  } else {
+    check(
+      "volume browse skipped for this engine image",
+      true,
+      "skipped: " + baseImage,
+    );
+  }
 
   createdNetworkId = await client.createNetwork({
     name: networkName,

@@ -73,6 +73,12 @@ export interface HostRegistrationInput {
   key?: string;
 }
 
+export interface VolumeMount {
+  source: string;
+  target: string;
+  readWrite?: boolean;
+}
+
 export interface ContainerCreateInput {
   image: string;
   name?: string;
@@ -88,6 +94,7 @@ export interface ContainerCreateInput {
   env?: EnvVar[];
   restartPolicy?: "no" | "always" | "on-failure" | "unless-stopped";
   labels?: Record<string, string>;
+  volumeMounts?: VolumeMount[];
 }
 
 export interface PortMapping {
@@ -257,6 +264,27 @@ export interface VolumeSummary {
   scope?: string;
   createdAt?: string;
   hostId: string;
+}
+
+export interface VolumeBrowseEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory";
+  sizeBytes?: number;
+  modifiedAt?: string;
+}
+
+export interface VolumeBrowseResult {
+  volume: string;
+  path: string;
+  entries: VolumeBrowseEntry[];
+}
+
+export interface VolumeBrowseInput {
+  volume: string;
+  path?: string;
+  image?: string;
+  operatingSystem?: string;
 }
 
 export interface NetworkSummary {

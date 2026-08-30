@@ -328,6 +328,19 @@ export function useVolumeInspect(
   });
 }
 
+export function useVolumeBrowse(
+  hostId: string | undefined,
+  volumeName: string | undefined,
+  path: string,
+) {
+  return useQuery({
+    queryKey: ["volume-browse", hostId, volumeName, path],
+    queryFn: () => gateway.browseVolume(hostId!, volumeName!, path),
+    enabled: Boolean(hostId && volumeName && path),
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useCreateVolume(hostId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
