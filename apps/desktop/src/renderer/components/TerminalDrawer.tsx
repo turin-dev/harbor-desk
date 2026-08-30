@@ -19,6 +19,15 @@ import {
 import type { Host, TerminalFrame } from "@harbor/contracts";
 import { getTerminalWebSocketUrl, gateway } from "../api/client.js";
 import { useUiStore } from "../state/ui-store.js";
+import {
+  appendToHistory,
+  applyTerminalFrame,
+  canRunTerminalCommand,
+  isTerminalFrame,
+  promptLine,
+  terminalFrameErrorMessage,
+  requestErrorMessage,
+} from "./terminal-session.js";
 
 const minHeight = 230;
 
@@ -49,31 +58,24 @@ export function TerminalDrawer({ host }: { host?: Host }) {
 
   const runCommand = async () => {
     if (
-      !host?.id ||
-      host.status !== "online" ||
-      !containerId ||
-      !command.trim() ||
-      running
+      !canRunTerminalCommand({
+        host: host ? { id: host.id, status: host.status } : undefined,
+        containerId,
+        command,
+        running,
+      })
     )
       return;
     const nextCommand = command.trim();
     setError(undefined);
     setRunning(true);
-    setHistory((items) =>
-      [nextCommand, ...items.filter((item) => item !== nextCommand)].slice(
-        0,
-        30,
-      ),
-    );
+    setHistory((items) => appendToHistory(items, nextCommand));
     setHistoryIndex(-1);
-    setOutput((lines) => [
-      ...lines,
-      `harbor@${containerName ?? "container"}:~$ ${nextCommand}`,
-    ]);
+    setOutput((lines) => [...lines, promptLine(containerName, nextCommand)]);
     try {
       const session = await gateway.createTerminalSession(
-        host.id,
-        containerId,
+        host!.id,
+        containerId!,
         nextCommand,
       );
       const ticket = await gateway.getWebSocketTicket();
@@ -84,10 +86,14 @@ export function TerminalDrawer({ host }: { host?: Host }) {
       socket.onmessage = (message) => {
         try {
           const frame = JSON.parse(String(message.data)) as TerminalFrame;
-          if (frame.type === "stdout" || frame.type === "stderr")
-            setOutput((lines) => [...lines, frame.data]);
-          if (frame.type === "error") setError(frame.message);
-          if (frame.type === "exit" || frame.type === "error") {
+          setOutput(
+            (lines) =>
+              applyTerminalFrame({ output: lines, running: false }, frame)
+                .output,
+          );
+          if (frame.type === "error")
+            setError(terminalFrameErrorMessage(frame));
+          if (isTerminalFrame(frame)) {
             setRunning(false);
             socket.close();
           }
@@ -104,11 +110,7 @@ export function TerminalDrawer({ host }: { host?: Host }) {
         setRunning(false);
       };
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not create a terminal session.",
-      );
+      setError(requestErrorMessage(requestError));
       setRunning(false);
     }
   };
