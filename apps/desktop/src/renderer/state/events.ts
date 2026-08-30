@@ -3,23 +3,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { EventEnvelope } from "@harbor/contracts";
 import { gateway, getGatewayWebSocketUrl } from "../api/client.js";
 import { useUiStore } from "./ui-store.js";
+import {
+  isEventForHost,
+  resourceQueryKey,
+  ReconnectSchedule,
+  stableConnectionResetMs,
+} from "./event-stream.js";
 
 function invalidateResource(
   queryClient: ReturnType<typeof useQueryClient>,
   hostId: string,
   resourceKind: string,
 ): void {
-  const kind = resourceKind.toLowerCase();
-  const queryKey =
-    kind === "container"
-      ? "containers"
-      : kind === "image"
-        ? "images"
-        : kind === "volume"
-          ? "volumes"
-          : kind === "network"
-            ? "networks"
-            : undefined;
+  const queryKey = resourceQueryKey(resourceKind);
 
   if (queryKey)
     void queryClient.invalidateQueries({ queryKey: [queryKey, hostId] });
@@ -35,20 +31,19 @@ export function useRemoteEventStream(hostId?: string): void {
 
     let closed = false;
     let retryTimer: number | undefined;
-    let retryDelay = 1_000;
+    const schedule = new ReconnectSchedule();
     let cursor: string | undefined;
     let socket: WebSocket | undefined;
     let connecting = false;
     let stableTimer: number | undefined;
-    const stableConnectionMs = 5_000;
 
     const scheduleReconnect = () => {
       if (closed || retryTimer !== undefined) return;
+      const delay = schedule.arm();
       retryTimer = window.setTimeout(() => {
         retryTimer = undefined;
         void connect();
-      }, retryDelay);
-      retryDelay = Math.min(retryDelay * 2, 10_000);
+      }, delay);
     };
 
     const connect = async () => {
@@ -72,13 +67,13 @@ export function useRemoteEventStream(hostId?: string): void {
           if (stableTimer !== undefined) window.clearTimeout(stableTimer);
           stableTimer = window.setTimeout(() => {
             stableTimer = undefined;
-            if (socket === nextSocket) retryDelay = 1_000;
-          }, stableConnectionMs);
+            if (socket === nextSocket) schedule.reset();
+          }, stableConnectionResetMs);
         };
         nextSocket.onmessage = (message) => {
           try {
             const event = JSON.parse(String(message.data)) as EventEnvelope;
-            if (!event.cursor || event.hostId !== hostId) return;
+            if (!isEventForHost(event, hostId)) return;
             cursor = event.cursor;
             if (useUiStore.getState().showConnectionNotifications)
               useUiStore.getState().addNotification(event);
