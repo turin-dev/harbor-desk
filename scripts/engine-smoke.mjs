@@ -86,20 +86,29 @@ try {
     ? WINDOWS_IMAGE_CANDIDATES
     : LINUX_IMAGE_CANDIDATES;
   let baseImage = null;
+  const skipReasons = [];
   for (const candidate of candidates) {
     try {
       await client.pullImage({ image: candidate }, () => undefined);
       baseImage = candidate;
       break;
-    } catch {
+    } catch (error) {
       // Not pullable on this Engine (OS version mismatch or registry
       // error); try the next candidate.
+      skipReasons.push(
+        candidate +
+          ": " +
+          (error instanceof Error ? error.message : String(error)),
+      );
     }
   }
   if (!baseImage) {
     throw new Error(
       "No pullable base image for " +
-        String(probe.summary.operatingSystem ?? "unknown"),
+        String(probe.summary.operatingSystem ?? "unknown") +
+        " (" +
+        skipReasons.join("; ") +
+        ")",
     );
   }
   // The cancel-pull test needs an uncached image, so the slow image must
