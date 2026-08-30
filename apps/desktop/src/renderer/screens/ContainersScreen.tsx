@@ -1240,6 +1240,81 @@ function ContainerRow(props: {
   );
 }
 
+function portMappingText(port: Record<string, unknown>): string {
+  const ip =
+    typeof port.PublicIP === "string" && port.PublicIP.length > 0
+      ? port.PublicIP
+      : "0.0.0.0";
+  const containerPort =
+    typeof port.PrivatePort === "number" ? String(port.PrivatePort) : "?";
+  const protocol =
+    typeof port.Type === "string" && port.Type.length > 0 ? port.Type : "tcp";
+  return ip + ":" + containerPort + "/" + protocol;
+}
+
+function summarizePortBindings(
+  data: Record<string, unknown> | undefined,
+): Array<string> {
+  const config = (data?.Config ?? {}) as Record<string, unknown>;
+  const hostConfig = (data?.HostConfig ?? {}) as Record<string, unknown>;
+  const exposed = config.ExposedPorts as Record<string, unknown> | undefined;
+  const bindings = (hostConfig.PortBindings ?? {}) as Record<
+    string,
+    Array<Record<string, unknown>> | undefined
+  >;
+  const rows: Array<string> = [];
+  if (exposed) {
+    for (const spec of Object.keys(exposed)) {
+      const slash = spec.indexOf("/");
+      const containerPort = slash >= 0 ? spec.slice(0, slash) : spec;
+      const protocol = slash >= 0 ? spec.slice(slash + 1) : "tcp";
+      const published = bindings[spec];
+      if (published && published.length > 0) {
+        for (const port of published) {
+          rows.push(
+            portMappingText(port) + " -> " + containerPort + "/" + protocol,
+          );
+        }
+      } else {
+        rows.push(
+          "0.0.0.0:" + containerPort + "/" + protocol + " (unpublished)",
+        );
+      }
+    }
+  }
+  return rows.sort();
+}
+
+function summarizeNetworkConnections(
+  data: Record<string, unknown> | undefined,
+): Array<string> {
+  const networkSettings = (data?.NetworkSettings ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const networks = (networkSettings.Networks ?? {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const rows: Array<string> = [];
+  for (const [name, network] of Object.entries(networks)) {
+    const ip =
+      typeof network.IPAddress === "string" && network.IPAddress.length > 0
+        ? network.IPAddress
+        : "no IP";
+    const gateway =
+      typeof network.Gateway === "string" && network.Gateway.length > 0
+        ? " (gw " + network.Gateway + ")"
+        : "";
+    const mac =
+      typeof network.MacAddress === "string" && network.MacAddress.length > 0
+        ? " " + network.MacAddress
+        : "";
+    rows.push(name + ": " + ip + gateway + mac);
+  }
+  return rows.sort();
+}
+
 function ContainerDetailDrawer(props: {
   hostId?: string;
   container?: ContainerSummary;
@@ -1339,6 +1414,11 @@ function ContainerDetailDrawer(props: {
                 {logs.data || "No logs reported."}
               </Box>
             )}
+            {!active.isLoading &&
+              !active.isError &&
+              props.tab === "inspect" && (
+                <ContainerInspectSummary data={inspect.data} />
+              )}
             {!active.isLoading && !active.isError && props.tab !== "logs" && (
               <Box
                 component="pre"
@@ -1361,5 +1441,68 @@ function ContainerDetailDrawer(props: {
         </Stack>
       )}
     </Drawer>
+  );
+}
+function ContainerInspectSummary(props: {
+  data: Record<string, unknown> | undefined;
+}) {
+  const ports = summarizePortBindings(props.data);
+  const networks = summarizeNetworkConnections(props.data);
+  if (ports.length === 0 && networks.length === 0) return null;
+  return (
+    <Stack spacing={1.4} sx={{ mb: 1.5 }}>
+      {ports.length > 0 && (
+        <Box>
+          <Typography
+            color="text.secondary"
+            sx={{
+              fontSize: 10.5,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+            }}
+          >
+            Port mappings
+          </Typography>
+          <Box
+            component="pre"
+            sx={{
+              m: "4px 0 0",
+              whiteSpace: "pre-wrap",
+              fontFamily: "var(--dd-font-mono)",
+              fontSize: 11.5,
+              color: "text.primary",
+            }}
+          >
+            {ports.join("\n")}
+          </Box>
+        </Box>
+      )}
+      {networks.length > 0 && (
+        <Box>
+          <Typography
+            color="text.secondary"
+            sx={{
+              fontSize: 10.5,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+            }}
+          >
+            Network connections
+          </Typography>
+          <Box
+            component="pre"
+            sx={{
+              m: "4px 0 0",
+              whiteSpace: "pre-wrap",
+              fontFamily: "var(--dd-font-mono)",
+              fontSize: 11.5,
+              color: "text.primary",
+            }}
+          >
+            {networks.join("\n")}
+          </Box>
+        </Box>
+      )}
+    </Stack>
   );
 }

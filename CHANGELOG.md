@@ -9,6 +9,12 @@ still change between minor versions.
 
 ### Added
 
+- The container detail drawer Inspect tab now leads with a compact
+  summary of the container port mappings (published and unpublished)
+  and its network connections with IP, gateway, and MAC before the raw
+  inspect JSON. The summary is read-only and derived from the same
+  inspect payload, so no new gateway endpoints were required.
+
 - Network attach and detach: the Networks screen can now connect an
   existing remote container to a network… and remove it again… without
   recreating the container. Each network row offers an Attach action that

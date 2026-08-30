@@ -15,8 +15,10 @@ const tag = "harbor-desk-smoke-" + Date.now().toString(36);
 const containerName = tag + "-c";
 const volumeName = tag + "-v";
 const networkName = tag + "-n";
-const slowImage = "postgres:16";
-const baseImage = "alpine:3.20";
+const LINUX_BASE_IMAGE = "alpine:3.20";
+const LINUX_SLOW_IMAGE = "postgres:16";
+const WINDOWS_BASE_IMAGE = "mcr.microsoft.com/windows/servercore:ltsc2022";
+const WINDOWS_SLOW_IMAGE = "mcr.microsoft.com/windows/nanoserver:ltsc2022";
 
 const results = [];
 let client;
@@ -66,6 +68,21 @@ try {
   if (!probe.capabilities.containers)
     throw new Error("Engine does not advertise the containers capability");
 
+  // A Windows Engine cannot run or even pull the Linux base image (the
+  // manifest list has no windows/amd64 entry), so pick the image stack by
+  // the platform the Engine itself runs on.
+  const isWindowsEngine = String(probe.summary.operatingSystem ?? "")
+    .toLowerCase()
+    .startsWith("windows");
+  const baseImage = isWindowsEngine ? WINDOWS_BASE_IMAGE : LINUX_BASE_IMAGE;
+  const slowImage = isWindowsEngine ? WINDOWS_SLOW_IMAGE : LINUX_SLOW_IMAGE;
+  const baseCommand = isWindowsEngine
+    ? { rawCommand: ["ping", "-n", "31", "127.0.0.1"] }
+    : { command: "sleep 30" };
+  const pruneCommand = isWindowsEngine
+    ? { rawCommand: ["true"] }
+    : { command: "true" };
+
   // Fresh CI runners do not cache the base image; the container lifecycle
   // below must not depend on an implicit pull (timeout / 404 otherwise).
   await client.pullImage({ image: baseImage }, () => undefined);
@@ -96,7 +113,7 @@ try {
   const containerId = await client.createContainer({
     image: baseImage,
     name: containerName,
-    command: "sleep 30",
+    ...baseCommand,
     restartPolicy: "no",
   });
   createdContainer = containerId;
@@ -171,7 +188,7 @@ try {
   // the check self-contained instead of touching unrelated stopped containers.
   const pruneTarget = await client.createContainer({
     image: baseImage,
-    command: "true",
+    ...pruneCommand,
     restartPolicy: "no",
   });
   const prune = await client.pruneContainers(false);
