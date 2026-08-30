@@ -53,6 +53,7 @@ import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
 import { buildContainerCreateInput } from "./container-create-input.js";
+import { filterRowsByQuery } from "../filter-rows.js";
 import {
   useCancelOperation,
   useContainerAction,
@@ -157,15 +158,16 @@ export function ContainersScreen() {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuContainer, setMenuContainer] = useState<ContainerSummary>();
 
-  const filtered = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    if (!query) return containers;
-    return containers.filter((container) =>
-      [container.name, container.image, container.status].some((value) =>
-        value.toLowerCase().includes(query),
+  const normalized = filter.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      filterRowsByQuery(
+        containers,
+        (container) => [container.name, container.image, container.status],
+        normalized,
       ),
-    );
-  }, [containers, filter]);
+    [containers, normalized],
+  );
 
   const reportOperation = (
     operation: { status: string; message?: string },

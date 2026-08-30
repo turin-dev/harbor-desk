@@ -72,6 +72,7 @@ import {
 } from "../state/queries.js";
 import { formatBytes, formatDate } from "../format.js";
 import { useUiStore } from "../state/ui-store.js";
+import { filterRowsByQuery } from "../filter-rows.js";
 
 type ResourceKind = "images" | "volumes" | "networks";
 
@@ -168,10 +169,10 @@ function ImagesView({ hostId }: { hostId?: string }) {
   const normalized = filter.trim().toLowerCase();
   const rows = useMemo(
     () =>
-      (query.data ?? []).filter((row) =>
-        [row.repository, row.tag, row.digest ?? row.id].some((value) =>
-          value.toLowerCase().includes(normalized),
-        ),
+      filterRowsByQuery(
+        query.data ?? [],
+        (row) => [row.repository, row.tag, row.digest ?? row.id],
+        normalized,
       ),
     [normalized, query.data],
   );
@@ -581,10 +582,10 @@ function VolumesView({ hostId }: { hostId?: string }) {
   const normalized = filter.trim().toLowerCase();
   const rows = useMemo(
     () =>
-      (query.data ?? []).filter((row) =>
-        [row.name, row.driver, row.mountpoint ?? ""].some((value) =>
-          value.toLowerCase().includes(normalized),
-        ),
+      filterRowsByQuery(
+        query.data ?? [],
+        (row) => [row.name, row.driver, row.mountpoint ?? ""],
+        normalized,
       ),
     [normalized, query.data],
   );
@@ -958,10 +959,10 @@ function NetworksView({ hostId }: { hostId?: string }) {
   const normalized = filter.trim().toLowerCase();
   const rows = useMemo(
     () =>
-      (query.data ?? []).filter((row) =>
-        [row.name, row.driver, row.scope].some((value) =>
-          value.toLowerCase().includes(normalized),
-        ),
+      filterRowsByQuery(
+        query.data ?? [],
+        (row) => [row.name, row.driver, row.scope],
+        normalized,
       ),
     [normalized, query.data],
   );
