@@ -21,85 +21,14 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import type {
-  ContainerSummary,
-  ImageSummary,
-  NetworkSummary,
-  VolumeSummary,
-} from "@harbor/contracts";
 import { gateway } from "../api/client.js";
-
-type SearchResult = {
-  key: string;
-  kind: "container" | "image" | "volume" | "network";
-  label: string;
-  secondary: string;
-  path: string;
-};
+import { buildResults, type SearchResult } from "./quick-search-results.js";
 
 function resultIcon(kind: SearchResult["kind"]) {
   if (kind === "container") return <Apps fontSize="small" />;
   if (kind === "image") return <ImageIcon fontSize="small" />;
   if (kind === "volume") return <Storage fontSize="small" />;
   return <Lan fontSize="small" />;
-}
-
-function matches(values: string[], query: string): boolean {
-  return values.some((value) => value.toLowerCase().includes(query));
-}
-
-function buildResults(
-  query: string,
-  resources: {
-    containers: ContainerSummary[];
-    images: ImageSummary[];
-    volumes: VolumeSummary[];
-    networks: NetworkSummary[];
-  },
-): SearchResult[] {
-  const results: SearchResult[] = [];
-  for (const row of resources.containers) {
-    if (!matches([row.name, row.image, row.status], query)) continue;
-    results.push({
-      key: `container-${row.id}`,
-      kind: "container",
-      label: row.name,
-      secondary: `${row.image} · ${row.status}`,
-      path: "/containers",
-    });
-  }
-  for (const row of resources.images) {
-    const image = `${row.repository}:${row.tag}`;
-    if (!matches([image, row.digest ?? row.id], query)) continue;
-    results.push({
-      key: `image-${row.id}-${row.tag}`,
-      kind: "image",
-      label: image,
-      secondary: row.digest ?? row.id.slice(0, 18),
-      path: "/images",
-    });
-  }
-  for (const row of resources.volumes) {
-    if (!matches([row.name, row.driver, row.mountpoint ?? ""], query)) continue;
-    results.push({
-      key: `volume-${row.name}`,
-      kind: "volume",
-      label: row.name,
-      secondary: `${row.driver} · ${row.scope ?? "unknown scope"}`,
-      path: "/volumes",
-    });
-  }
-  for (const row of resources.networks) {
-    if (!matches([row.name, row.driver, row.scope], query)) continue;
-    results.push({
-      key: `network-${row.id}`,
-      kind: "network",
-      label: row.name,
-      secondary: `${row.driver} · ${row.scope}`,
-      path: "/networks",
-    });
-  }
-  return results.slice(0, 12);
 }
 
 export function QuickSearch({
