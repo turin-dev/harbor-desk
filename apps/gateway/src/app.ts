@@ -805,13 +805,17 @@ export async function buildApp(
       });
       try {
         const url =
-          "https://registry-1.docker.io/v2/search/repositories" +
-          "?q=" +
+          "https://hub.docker.com/v2/search/repositories/" +
+          "?query=" +
           encodeURIComponent(q) +
           "&page_size=" +
           limit;
         const response = await hubTransport(url, {
-          headers: { accept: "application/json" },
+          headers: {
+            accept: "application/json",
+            "user-agent": "harbor-desk-gateway",
+            connection: "close",
+          },
           signal: AbortSignal.timeout(20_000),
         });
         if (response.status === 429) {
@@ -831,7 +835,7 @@ export async function buildApp(
           );
         }
         const body = (await response.json().catch(() => undefined)) as
-          | { result_count?: unknown; results?: Array<Record<string, unknown>> }
+          | { count?: unknown; results?: Array<Record<string, unknown>> }
           | undefined;
         const results = (body?.results ?? [])
           .filter((item) => typeof item?.repo_name === "string")
@@ -839,25 +843,20 @@ export async function buildApp(
           .map((item) => ({
             repository: String(item.repo_name),
             description:
-              typeof item.description === "string" && item.description
-                ? item.description
+              typeof item.short_description === "string" &&
+              item.short_description
+                ? item.short_description
                 : undefined,
             starCount:
               typeof item.star_count === "number" ? item.star_count : 0,
             pullCount:
               typeof item.pull_count === "number" ? item.pull_count : 0,
             isOfficial: item.is_official === true,
-            repositoryType:
-              typeof item.repository_type === "string"
-                ? item.repository_type
-                : undefined,
           })) satisfies HubSearchResult[];
         return sendData(reply, {
           query: q,
           resultCount:
-            typeof body?.result_count === "number"
-              ? body.result_count
-              : results.length,
+            typeof body?.count === "number" ? body.count : results.length,
           results,
         });
       } catch (error) {

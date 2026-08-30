@@ -684,8 +684,19 @@ export class DockerEngineClient {
     );
   }
 
-  public async createEventStream(): Promise<IncomingMessage> {
-    const response = await this.requestStream("/events");
+  public async createEventStream(
+    signal?: AbortSignal,
+  ): Promise<IncomingMessage> {
+    const response = await this.requestStream("/events", {
+      ...(signal ? { signal } : {}),
+    });
+    if (signal?.aborted) {
+      response.destroy(this.abortError());
+      return response;
+    }
+    const onAbort = () => response.destroy(this.abortError());
+    signal?.addEventListener("abort", onAbort, { once: true });
+    response.once("close", () => signal?.removeEventListener("abort", onAbort));
     return response;
   }
 

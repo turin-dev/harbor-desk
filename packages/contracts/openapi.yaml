@@ -619,7 +619,6 @@ components:
         starCount: { type: integer, minimum: 0 }
         pullCount: { type: integer, minimum: 0 }
         isOfficial: { type: boolean }
-        repositoryType: { type: string }
     HubSearchResponse:
       type: object
       required: [query, resultCount, results]

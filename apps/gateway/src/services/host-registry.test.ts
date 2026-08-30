@@ -372,6 +372,55 @@ test("add() maps protocols to connection modes and stores TLS secrets", async (t
   assert.deepEqual(registry.list(), []);
 });
 
+test("remove() aborts the Engine event stream for that host", async () => {
+  const { registry } = makeRegistry();
+  let captured: AbortSignal | undefined;
+  const client = clientStub({
+    createEventStream: (signal?: AbortSignal) => {
+      captured = signal;
+      return new Promise<never>(() => {});
+    },
+  });
+  const record = inject(registry, makeRecord(client));
+  void (
+    registry as unknown as {
+      watchEvents: (hostId: string, rec: FakeRecord) => Promise<void>;
+    }
+  ).watchEvents("h1", record);
+  assert.ok(captured, "watchEvents wires an AbortSignal into the event stream");
+  assert.equal(captured.aborted, false);
+  await registry.remove("h1");
+  assert.equal(captured.aborted, true);
+});
+
+test("close() aborts every active Engine event stream", async () => {
+  const { registry } = makeRegistry();
+  const signals: AbortSignal[] = [];
+  const make = () =>
+    clientStub({
+      createEventStream: (signal?: AbortSignal) => {
+        signals.push(signal as AbortSignal);
+        return new Promise<never>(() => {});
+      },
+    });
+  const a = inject(registry, makeRecord(make(), "online", "ha"));
+  const b = inject(registry, makeRecord(make(), "online", "hb"));
+  void (
+    registry as unknown as {
+      watchEvents: (hostId: string, rec: FakeRecord) => Promise<void>;
+    }
+  ).watchEvents("ha", a);
+  void (
+    registry as unknown as {
+      watchEvents: (hostId: string, rec: FakeRecord) => Promise<void>;
+    }
+  ).watchEvents("hb", b);
+  assert.equal(signals.length, 2);
+  await registry.close();
+  assert.equal(signals[0]!.aborted, true);
+  assert.equal(signals[1]!.aborted, true);
+});
+
 test("add() fails fast with 422 without touching the secret store", async () => {
   const { store, puts } = fakeSecrets();
   const { registry } = makeRegistry(baseConfig, { secrets: store });

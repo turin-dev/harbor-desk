@@ -173,6 +173,45 @@ test("maps an in-flight request abort to the deterministic cancel code", async (
   );
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
+test("forwards an AbortSignal into the Engine event stream request", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const controller = new AbortController();
+  const { Readable } = await import("node:stream");
+  (client as unknown as { requestStream: unknown }).requestStream = (
+    path: string,
+    options?: { signal?: AbortSignal },
+  ) => {
+    assert.equal(path, "/events");
+    assert.equal(options?.signal, controller.signal);
+    return Promise.resolve(new Readable({ read: () => undefined }));
+  };
+  await client.createEventStream(controller.signal);
+});
+test("destroys the event stream response when its signal aborts", async () => {
+  const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  const http = await import("node:http");
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200);
+    response.write("{}\n");
+    // Leave the stream open until the client side destroys it.
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    assert.fail("expected a numeric test server port");
+  }
+  const streaming = new DockerEngineClient({
+    endpoint: "http://127.0.0.1:" + address.port,
+  });
+  const controller = new AbortController();
+  const response = await streaming.createEventStream(controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  controller.abort();
+  await new Promise<void>((resolve) => response.once("close", () => resolve()));
+  assert.equal(response.destroyed, true);
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
 test("maps prune endpoints to a normalized prune summary", async () => {
   const containers = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
   (containers as unknown as { requestJson: unknown }).requestJson = async (

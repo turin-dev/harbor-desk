@@ -175,7 +175,6 @@ export interface HubSearchResult {
   starCount: number;
   pullCount: number;
   isOfficial: boolean;
-  repositoryType?: string;
 }
 
 export interface HubSearchResponse {

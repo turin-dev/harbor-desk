@@ -636,15 +636,14 @@ test("normalizes Docker Hub search responses", async (t) => {
       return new Response(
         JSON.stringify({
           query: "nginx",
-          result_count: 12,
+          count: 12,
           results: [
             {
               repo_name: "library/nginx",
-              description: "Official Nginx image",
+              short_description: "Official Nginx image",
               star_count: 30000,
               pull_count: 9000000000,
               is_official: true,
-              repository_type: "image",
             },
             { repo_name: "nginx", star_count: 900 },
             { junk: true },
@@ -674,7 +673,7 @@ test("normalizes Docker Hub search responses", async (t) => {
   assert.equal(calls.length, 1);
   assert.match(
     calls[0]!.url,
-    /registry-1.docker\.io\/v2\/search\/repositories\?q=nginx&page_size=25\b/,
+    /hub.docker.com\/v2\/search\/repositories\/\?query=nginx&page_size=25\b/,
   );
   const events = harbor.audit.list(500);
   assert.equal(

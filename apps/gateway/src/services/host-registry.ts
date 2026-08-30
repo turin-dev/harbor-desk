@@ -44,6 +44,7 @@ interface HostRecord {
   connection: StoredConnection;
   client: DockerEngineClient;
   lastError?: string;
+  eventAbort?: AbortController;
 }
 
 interface ExecRecord {
@@ -125,6 +126,9 @@ export class HostRegistry {
 
   public async close(): Promise<void> {
     this.stopping = true;
+    for (const record of this.records.values()) {
+      record.eventAbort?.abort();
+    }
   }
 
   public dependencyStatus(): "ok" | "unavailable" | "not-configured" {
@@ -192,6 +196,7 @@ export class HostRegistry {
   public async remove(hostId: string): Promise<void> {
     const record = this.get(hostId);
     this.records.delete(hostId);
+    record.eventAbort?.abort();
     if (record.connection.secretReference)
       await this.secrets.delete(record.connection.secretReference);
   }
@@ -836,7 +841,9 @@ export class HostRegistry {
   private async watchEvents(hostId: string, record: HostRecord): Promise<void> {
     while (!this.stopping && this.records.get(hostId) === record) {
       try {
-        const stream = await record.client.createEventStream();
+        const eventAbort = new AbortController();
+        record.eventAbort = eventAbort;
+        const stream = await record.client.createEventStream(eventAbort.signal);
         let buffer = "";
         for await (const chunk of stream) {
           buffer += Buffer.isBuffer(chunk)

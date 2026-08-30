@@ -242,6 +242,42 @@ try {
     row?.status === "online",
     row?.status ?? "host missing",
   );
+
+  const hub = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hub/search?q=nginx&limit=5",
+  });
+  check(
+    "live hub search returns 200",
+    hub.statusCode === 200,
+    "http=" +
+      hub.statusCode +
+      (hub.statusCode === 200
+        ? ""
+        : " " + hub.rawPayload.toString().slice(0, 160)),
+  );
+  if (hub.statusCode === 200) {
+    const body = hub.json().data;
+    check(
+      "live hub search results are normalized",
+      Array.isArray(body?.results) &&
+        body.results.length > 0 &&
+        typeof body.results[0]?.repository === "string" &&
+        typeof body.resultCount === "number",
+      (body?.resultCount ?? 0) + " total matches",
+    );
+    const audit = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/audit?limit=5",
+    });
+    check(
+      "live hub search is audited",
+      (audit.json().data ?? []).some(
+        (event) =>
+          event.action === "hub.search" && event.resourceId === "nginx",
+      ),
+    );
+  }
 } catch (error) {
   check(
     "unexpected failure",
@@ -249,6 +285,9 @@ try {
     error instanceof Error ? error.message : String(error),
   );
 } finally {
+  // The Engine npipe /events socket is torn down by the gateway on
+  // host removal and app close, so no live Engine connection is left
+  // behind at teardown.
   if (hostId) {
     await harbor.app
       .inject({ method: "DELETE", url: "/api/v1/hosts/" + hostId })
@@ -268,4 +307,9 @@ console.log(
         results.length +
         " checks)",
 );
-process.exit(failed === 0 ? 0 : 1);
+// Known libuv/Node Windows teardown quirk (libuv#3622): calling
+// process.exit() while npipe/undici handles are still settling can trip
+// the UV_HANDLE_CLOSING assertion. Let the loop drain naturally instead,
+// with an unref'd watchdog so a lingering handle cannot hang the smoke.
+process.exitCode = failed === 0 ? 0 : 1;
+setTimeout(() => process.exit(process.exitCode), 10_000).unref();
