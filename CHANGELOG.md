@@ -18,6 +18,9 @@ still change between minor versions.
   row opens a detail dialog with the full digest and any inspect
   limitations. No scan provider is attached to the gateway yet, so the
   screen never presents simulated scan results.
+  The Images screen gains an "Image security" action that opens the
+  screen carrying the current image filter (repository, tag, or digest)
+  as a `?q=` deep link, and the screen itself offers the same filter box.
 - Builds screen: the placeholder `/builds` route is now a working Builds
   surface. Choose a local context folder (packaged in the desktop main
   process into a deterministic USTAR tar archive), set the target image

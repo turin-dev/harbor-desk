@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Fingerprint, ShieldOutlined } from "@mui/icons-material";
+import { Fingerprint, Search, ShieldOutlined } from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -9,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  InputAdornment,
   MenuItem,
   Paper,
   Select,
@@ -18,11 +19,14 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TextField,
   Typography,
 } from "@mui/material";
 import type { ImageSummary } from "@harbor/contracts";
+import { useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { filterRowsByQuery } from "../filter-rows.js";
 import { useHosts, useImageInspect, useImages } from "../state/queries.js";
 import { formatBytes, formatDate } from "../format.js";
 import { useUiStore } from "../state/ui-store.js";
@@ -36,6 +40,7 @@ import {
 } from "./security-facts.js";
 
 export function SecurityScreen() {
+  const [searchParams] = useSearchParams();
   const { data: hosts = [] } = useHosts();
   const storedHostId = useUiStore((state) => state.selectedHostId);
   const selectedHost =
@@ -51,6 +56,7 @@ export function SecurityScreen() {
   } = useImages(hostId, Boolean(hostId && hostOnline && imagesCapability));
   const trust = hostTrustFacts(selectedHost);
   const [selected, setSelected] = useState<ImageSecurityFacts>();
+  const [filter, setFilter] = useState(searchParams.get("q") ?? "");
   const selectedInspect = useImageInspect(
     hostId,
     selected?.image.id ?? undefined,
@@ -61,6 +67,16 @@ export function SecurityScreen() {
         ? summarizeImageSecurity(selected.image, selectedInspect)
         : undefined,
     [selected, selectedInspect],
+  );
+  const normalized = filter.trim().toLowerCase();
+  const rows = useMemo(
+    () =>
+      filterRowsByQuery(
+        images,
+        (row) => [row.repository, row.tag, row.digest ?? row.id],
+        normalized,
+      ),
+    [images, normalized],
   );
 
   if (!hosts.length)
@@ -104,25 +120,42 @@ export function SecurityScreen() {
         title="Image security"
         description="Read-only security facts derived from the Engine: content digests, image architecture, and host connection trust. No scan provider is attached to the gateway yet."
         actions={
-          hosts.length > 1 ? (
-            <Select
+          <Stack direction="row" spacing={1}>
+            <TextField
               size="small"
-              value={hostId ?? ""}
-              onChange={(event) =>
-                useUiStore
-                  .getState()
-                  .setSelectedHostId(event.target.value as string)
-              }
-              sx={{ minWidth: 200 }}
-              aria-label="Select security host"
-            >
-              {hosts.map((host) => (
-                <MenuItem key={host.id} value={host.id}>
-                  {host.displayName} ({host.status})
-                </MenuItem>
-              ))}
-            </Select>
-          ) : undefined
+              placeholder="Filter repository, tag, or digest"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 260 }}
+              aria-label="Filter image security facts"
+            />
+            {hosts.length > 1 && (
+              <Select
+                size="small"
+                value={hostId ?? ""}
+                onChange={(event) =>
+                  useUiStore
+                    .getState()
+                    .setSelectedHostId(event.target.value as string)
+                }
+                sx={{ minWidth: 200 }}
+                aria-label="Select security host"
+              >
+                {hosts.map((host) => (
+                  <MenuItem key={host.id} value={host.id}>
+                    {host.displayName} ({host.status})
+                  </MenuItem>
+                ))}
+              </Select>
+            )}
+          </Stack>
         }
       />
       {trust && (
@@ -174,7 +207,7 @@ export function SecurityScreen() {
             ? error.message
             : "Image security facts could not be loaded."}
         </Alert>
-      ) : images.length ? (
+      ) : rows.length ? (
         <Paper sx={{ p: 2 }}>
           <Table aria-label="Image security facts">
             <TableHead>
@@ -189,7 +222,7 @@ export function SecurityScreen() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {images.map((image) => {
+              {rows.map((image) => {
                 const facts = summarizeImageSecurity(image, {});
                 const gate = digestGate(facts);
                 const pinned = facts.digestPinned;
@@ -248,8 +281,12 @@ export function SecurityScreen() {
       ) : (
         <EmptyState
           icon={<Fingerprint />}
-          title="No images on this host"
-          description="Pull or build an image first; its digest facts appear here automatically."
+          title={normalized ? "No matching images" : "No images on this host"}
+          description={
+            normalized
+              ? "No image matches the current filter."
+              : "Pull or build an image first; its digest facts appear here automatically."
+          }
         />
       )}
       <Dialog

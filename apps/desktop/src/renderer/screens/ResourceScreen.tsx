@@ -12,6 +12,7 @@ import {
   Search,
   Storage,
   CleaningServices,
+  ShieldOutlined,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -218,6 +219,20 @@ function ImagesView({ hostId }: { hostId?: string }) {
                 </Button>
               </span>
             </Tooltip>
+            <Button
+              variant="outlined"
+              startIcon={<ShieldOutlined />}
+              onClick={() =>
+                navigate(
+                  filter.trim()
+                    ? `/security?q=${encodeURIComponent(filter.trim())}`
+                    : "/security",
+                )
+              }
+              disabled={!hostId}
+            >
+              Image security
+            </Button>
             <Button
               variant="contained"
               startIcon={<CloudDownload />}
