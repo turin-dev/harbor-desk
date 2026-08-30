@@ -26,6 +26,12 @@ import {
   isValidProviderId,
   parseAuthCallback,
 } from "./auth-login.js";
+import {
+  buildMainFrameCsp,
+  connectionOriginsFor,
+  harborCallbackUrl,
+  secureTokenKey,
+} from "./main-policy.js";
 import { parseConnectionInput } from "./connection-input.js";
 import {
   checkForUpdates,
@@ -142,14 +148,7 @@ function requiredGatewayUrl(): string {
 }
 
 function connectionOrigins(): string[] {
-  const url = activeGatewayUrl();
-  if (!url) return [];
-  try {
-    const origin = new URL(url).origin;
-    return [origin, origin.replace(/^http/i, "ws")];
-  } catch {
-    return [];
-  }
+  return connectionOriginsFor(activeGatewayUrl());
 }
 
 function notifyConnectionChanged(status: ConnectionStatus): void {
@@ -187,8 +186,7 @@ async function initializeConnection(): Promise<void> {
 }
 
 function secureTokenPath(key: string): string {
-  const safeKey = key.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return join(app.getPath("userData"), "secure", `${safeKey}.bin`);
+  return join(app.getPath("userData"), "secure", secureTokenKey(key) + ".bin");
 }
 
 function notifyAuthChanged(): void {
@@ -445,10 +443,10 @@ async function createWindow(): Promise<void> {
         responseHeaders: {
           ...details.responseHeaders,
           "Content-Security-Policy": [
-            `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${[
+            buildMainFrameCsp([
               ...connectionOrigins(),
               ...(!app.isPackaged ? [devOrigin, devWebSocketOrigin] : []),
-            ].join(" ")}; font-src 'self' data:;`,
+            ]),
           ],
         },
       });
@@ -625,9 +623,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", (_event, commandLine) => {
-    const callback = commandLine.find((argument) =>
-      argument.startsWith("harbor-desk://"),
-    );
+    const callback = harborCallbackUrl(commandLine);
     if (callback) void handleAuthCallback(callback);
     mainWindow?.show();
   });
