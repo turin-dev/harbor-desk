@@ -70,27 +70,10 @@ import {
   useVolumeInspect,
   useVolumes,
 } from "../state/queries.js";
+import { formatBytes, formatDate } from "../format.js";
 import { useUiStore } from "../state/ui-store.js";
 
 type ResourceKind = "images" | "volumes" | "networks";
-
-function formatBytes(bytes: number | undefined): string {
-  if (!bytes) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${value.toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
-}
-
-function formatDate(value: string | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
-}
 
 function copyValue(
   value: string,

@@ -16,6 +16,7 @@ import {
 import type { AuditEvent } from "@harbor/contracts";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { formatTime } from "../format.js";
 import { useAudit, useCurrentUser } from "../state/queries.js";
 
 const resultTone: Record<
@@ -26,12 +27,6 @@ const resultTone: Record<
   failure: "error",
   denied: "warning",
 };
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
 
 export function AuditScreen() {
   const { data: user } = useCurrentUser();

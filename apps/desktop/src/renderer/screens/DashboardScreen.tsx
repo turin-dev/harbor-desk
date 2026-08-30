@@ -25,19 +25,8 @@ import { MetricCard } from "../components/MetricCard.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { StatusChip } from "../components/StatusChip.js";
 import { useContainers, useDashboard, useHosts } from "../state/queries.js";
+import { formatBytes } from "../format.js";
 import { useUiStore } from "../state/ui-store.js";
-
-function formatBytes(bytes: number | undefined): string {
-  if (!bytes) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${value.toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
-}
 
 export function DashboardScreen() {
   const navigate = useNavigate();
