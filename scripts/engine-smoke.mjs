@@ -79,9 +79,13 @@ try {
   // try the candidates in order and keep the first image the Engine can
   // pull; a fresh CI runner may report a newer Windows build than any
   // fixed tag listed here.
+  // The Engine reports the full host OS description, for example
+  // 'Microsoft Windows Server Version 24H2' on native Windows CI and
+  // 'Ubuntu 24.04.2 LTS' on Linux, so detect Windows anywhere in the
+  // string instead of at the start.
   const isWindowsEngine = String(probe.summary.operatingSystem ?? "")
     .toLowerCase()
-    .startsWith("windows");
+    .includes("windows");
   const candidates = isWindowsEngine
     ? WINDOWS_IMAGE_CANDIDATES
     : LINUX_IMAGE_CANDIDATES;
