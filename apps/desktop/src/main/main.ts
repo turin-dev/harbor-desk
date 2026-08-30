@@ -33,6 +33,7 @@ import {
   secureTokenKey,
 } from "./main-policy.js";
 import { parseConnectionInput } from "./connection-input.js";
+import { buildContextTar } from "./build-context.js";
 import {
   checkForUpdates,
   initialUpdateStatus,
@@ -530,6 +531,26 @@ function registerIpc(): void {
       return result.canceled ? undefined : result.filePaths[0];
     },
   );
+
+  ipcMain.handle("app:select-folder", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+    });
+    return result.canceled ? undefined : result.filePaths[0];
+  });
+
+  ipcMain.handle("app:build-context", async (_event, folder?: unknown) => {
+    if (typeof folder !== "string" || !folder) return undefined;
+    try {
+      return await buildContextTar(folder);
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : "Could not package the build context.",
+      );
+    }
+  });
 
   ipcMain.handle("app:open-external", async (_event, url: unknown) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;

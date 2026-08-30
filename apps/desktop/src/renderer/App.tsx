@@ -11,6 +11,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { createHarborTheme } from "@harbor/ui";
 import { AppShell } from "./components/AppShell.js";
 import { DashboardScreen } from "./screens/DashboardScreen.js";
+import { BuildsScreen } from "./screens/BuildsScreen.js";
 import { AuditScreen } from "./screens/AuditScreen.js";
 import { ContainersScreen } from "./screens/ContainersScreen.js";
 import { HostsScreen } from "./screens/HostsScreen.js";
@@ -138,17 +139,7 @@ function AuthGate() {
         <Route path="/images" element={<ResourceScreen kind="images" />} />
         <Route path="/volumes" element={<ResourceScreen kind="volumes" />} />
         <Route path="/networks" element={<ResourceScreen kind="networks" />} />
-        <Route
-          path="/builds"
-          element={
-            <SurfaceScreen
-              title="Builds"
-              eyebrow="BuildKit"
-              capability="buildkit"
-              description="Inspect active and completed remote builds, logs, artifacts, and builders."
-            />
-          }
-        />
+        <Route path="/builds" element={<BuildsScreen />} />
         <Route
           path="/kubernetes"
           element={

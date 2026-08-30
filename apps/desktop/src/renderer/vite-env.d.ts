@@ -26,6 +26,16 @@ interface Window {
     selectFile: (options?: {
       extensions?: string[];
     }) => Promise<string | undefined>;
+    selectFolder: () => Promise<string | undefined>;
+    buildContext: (folder: string) => Promise<{
+      base64Tar: string;
+      entries: Array<{
+        path: string;
+        sizeBytes: number;
+        mode: "file" | "directory";
+      }>;
+      totalBytes: number;
+    }>;
     openExternal: (url: string) => Promise<boolean>;
     updates: {
       getStatus: () => Promise<DesktopUpdateCheckStatus>;

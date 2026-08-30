@@ -9,6 +9,13 @@ still change between minor versions.
 
 ### Added
 
+- Builds screen: the placeholder `/builds` route is now a working Builds
+  surface. Choose a local context folder (packaged in the desktop main
+  process into a deterministic USTAR tar archive), set the target image
+  tag, optional context-relative Dockerfile path, and KEY=VALUE build
+  args. The build runs through
+  `POST /api/v1/hosts/{hostId}/builds/context` with live Engine progress,
+  a Cancel button, and success/cancelled/failed result states.
 - Remote image builds: a new Builds flow posts a base64-encoded tar of a
   local Dockerfile context to
   `POST /api/v1/hosts/{hostId}/builds/context` (operator role, audited)

@@ -189,6 +189,23 @@ export function usePullImage(hostId: string | undefined) {
   });
 }
 
+export function useBuildImage(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      image: import("@harbor/contracts").ImageBuildInput;
+      operationId?: string;
+    }) => {
+      const operationId = withDefaultOperationId(input.operationId);
+      return gateway.buildImage(hostId!, input.image, operationId);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
+    },
+  });
+}
+
 export function useCancelOperation() {
   const queryClient = useQueryClient();
   return useMutation({

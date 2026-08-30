@@ -30,6 +30,18 @@ contextBridge.exposeInMainWorld("harbor", {
     ipcRenderer.invoke("app:select-file", options) as Promise<
       string | undefined
     >,
+  selectFolder: () =>
+    ipcRenderer.invoke("app:select-folder") as Promise<string | undefined>,
+  buildContext: (folder: string) =>
+    ipcRenderer.invoke("app:build-context", folder) as Promise<{
+      base64Tar: string;
+      entries: Array<{
+        path: string;
+        sizeBytes: number;
+        mode: "file" | "directory";
+      }>;
+      totalBytes: number;
+    }>,
   openExternal: (url: string) =>
     ipcRenderer.invoke("app:open-external", url) as Promise<boolean>,
   updates: {

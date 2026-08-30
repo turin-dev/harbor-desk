@@ -11,6 +11,7 @@ import type {
   HostRegistrationInput,
   HubSearchResponse,
   ImagePullInput,
+  ImageBuildInput,
   ImageSummary,
   NetworkCreateInput,
   NetworkSummary,
@@ -262,6 +263,18 @@ export const gateway = {
   pullImage: (hostId: string, input: ImagePullInput, operationId?: string) =>
     request<Operation>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/images/pull`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: {
+          "idempotency-key": crypto.randomUUID(),
+          ...(operationId ? { "operation-id": operationId } : {}),
+        },
+      },
+    ),
+  buildImage: (hostId: string, input: ImageBuildInput, operationId?: string) =>
+    request<Operation>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/builds/context`,
       {
         method: "POST",
         body: JSON.stringify(input),
