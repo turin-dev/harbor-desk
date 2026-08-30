@@ -66,6 +66,11 @@ try {
   if (!probe.capabilities.containers)
     throw new Error("Engine does not advertise the containers capability");
 
+  // Fresh CI runners do not cache the base image; the container lifecycle
+  // below must not depend on an implicit pull (timeout / 404 otherwise).
+  await client.pullImage({ image: baseImage }, () => undefined);
+  check("base image available for the container lifecycle", true, baseImage);
+
   await client.createVolume({ name: volumeName });
   createdVolume = true;
   const volumes = await client.listVolumes();

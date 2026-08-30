@@ -420,6 +420,36 @@ paths:
       responses:
         "202":
           description: Network deletion operation
+  /api/v1/hosts/{hostId}/networks/{networkId}/connect:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/networkId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkAttachInput"
+      responses:
+        "202":
+          description: Network attach operation
+  /api/v1/hosts/{hostId}/networks/{networkId}/disconnect:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+        - $ref: "#/components/parameters/networkId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkAttachInput"
+      responses:
+        "202":
+          description: Network detach operation
   /api/v1/stream:
     get:
       description: WebSocket upgrade endpoint for host events and operation progress.
@@ -712,6 +742,12 @@ components:
         name: { type: string, minLength: 1, maxLength: 255 }
         driver: { type: string, minLength: 1, maxLength: 128 }
         internal: { type: boolean, default: false }
+    NetworkAttachInput:
+      type: object
+      required: [containerId]
+      properties:
+        containerId: { type: string, minLength: 1, maxLength: 256 }
+        ipamConfig: { type: object, additionalProperties: true }
     CapabilityMatrix:
       type: object
       required:

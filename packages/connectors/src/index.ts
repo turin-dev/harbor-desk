@@ -20,6 +20,7 @@ import type {
   ImageSummary,
   PruneSummary,
   NetworkSummary,
+  NetworkAttachInput,
   NetworkCreateInput,
   VolumeCreateInput,
   VolumeSummary,
@@ -645,6 +646,39 @@ export class DockerEngineClient {
       method: "DELETE",
       ...(signal ? { signal } : {}),
     });
+  }
+
+  public async networkConnect(
+    networkId: string,
+    input: NetworkAttachInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.requestJson(
+      `/networks/${encodeURIComponent(networkId)}/connect`,
+      {
+        method: "POST",
+        body: {
+          Container: input.containerId,
+          ...(input.ipamConfig ? { IPAMConfig: input.ipamConfig } : {}),
+        },
+        ...(signal ? { signal } : {}),
+      },
+    );
+  }
+
+  public async networkDisconnect(
+    networkId: string,
+    containerId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.requestJson(
+      `/networks/${encodeURIComponent(networkId)}/disconnect`,
+      {
+        method: "POST",
+        body: { Container: containerId },
+        ...(signal ? { signal } : {}),
+      },
+    );
   }
 
   public async createContainer(

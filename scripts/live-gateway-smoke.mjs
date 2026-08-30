@@ -279,6 +279,149 @@ try {
     );
   }
   {
+    // Real network attach/detach against the live Engine: create a
+    // network and a container, attach over HTTP, verify the inspect
+    // payload, detach, verify it is gone, then clean both up.
+    const smokeNetwork = "harbor-smoke-net-" + randomUUID().slice(0, 36);
+    const netCreate = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/hosts/" + hostId + "/networks",
+      payload: { name: smokeNetwork },
+    });
+    check(
+      "network create settles as a succeeded operation",
+      netCreate.statusCode === 202 &&
+        netCreate.json().data.status === "succeeded",
+      "op=" + netCreate.json().data?.status,
+    );
+    const netList = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/hosts/" + hostId + "/networks",
+    });
+    const smokeNet = (netList.json().data ?? []).find(
+      (row) => row.name === smokeNetwork,
+    );
+    check("smoke network is listed", smokeNet !== undefined, smokeNetwork);
+
+    const attachContainerName =
+      "harbor-live-smoke-net-" + randomUUID().slice(0, 8);
+    const netContainer = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/hosts/" + hostId + "/containers",
+      payload: {
+        image: "alpine:3.20",
+        name: attachContainerName,
+        command: "sleep 60",
+      },
+    });
+    check(
+      "attach container create+start settles as a succeeded operation",
+      netContainer.statusCode === 202 &&
+        netContainer.json().data.status === "succeeded",
+      "op=" + netContainer.json().data?.status,
+    );
+    let attachContainer = null;
+    for (let i = 0; i < 40 && !attachContainer; i += 1) {
+      const list = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/hosts/" + hostId + "/containers",
+      });
+      attachContainer = (list.json().data ?? []).find(
+        (row) => row.name === attachContainerName,
+      );
+      if (!attachContainer)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    check("attach container is listed", attachContainer !== null);
+
+    if (smokeNet && attachContainer) {
+      const attach = await harbor.app.inject({
+        method: "POST",
+        url:
+          "/api/v1/hosts/" + hostId + "/networks/" + smokeNet.id + "/connect",
+        payload: { containerId: attachContainer.id },
+      });
+      check(
+        "network attach returns a succeeded operation",
+        attach.statusCode === 202 && attach.json().data.status === "succeeded",
+        "op=" + attach.json().data?.status,
+      );
+      let inspected = await harbor.app.inject({
+        method: "GET",
+        url:
+          "/api/v1/hosts/" + hostId + "/networks/" + smokeNet.id + "/inspect",
+      });
+      let attachedIds = inspected.json().data?.Containers ?? {};
+      check(
+        "inspect lists the attached container",
+        Object.prototype.hasOwnProperty.call(attachedIds, attachContainer.id),
+        Object.keys(attachedIds).length + " containers attached",
+      );
+
+      const detach = await harbor.app.inject({
+        method: "POST",
+        url:
+          "/api/v1/hosts/" +
+          hostId +
+          "/networks/" +
+          smokeNet.id +
+          "/disconnect",
+        payload: { containerId: attachContainer.id },
+      });
+      check(
+        "network detach returns a succeeded operation",
+        detach.statusCode === 202 && detach.json().data.status === "succeeded",
+        "op=" + detach.json().data?.status,
+      );
+      inspected = await harbor.app.inject({
+        method: "GET",
+        url:
+          "/api/v1/hosts/" + hostId + "/networks/" + smokeNet.id + "/inspect",
+      });
+      attachedIds = inspected.json().data?.Containers ?? {};
+      check(
+        "inspect no longer lists the detached container",
+        !Object.prototype.hasOwnProperty.call(attachedIds, attachContainer.id),
+        Object.keys(attachedIds).length + " containers attached",
+      );
+
+      const attachAudit = await harbor.app.inject({
+        method: "GET",
+        url: "/api/v1/audit?limit=20",
+      });
+      check(
+        "network attach is audited",
+        (attachAudit.json().data ?? []).some(
+          (event) =>
+            event.action === "network.attach" &&
+            event.resourceId === smokeNet.id,
+        ),
+      );
+    }
+
+    await harbor.app
+      .inject({
+        method: "DELETE",
+        url:
+          "/api/v1/hosts/" +
+          hostId +
+          "/containers/" +
+          (attachContainer ? attachContainer.id : "none") +
+          "?force=true",
+      })
+      .catch(() => undefined);
+    await harbor.app
+      .inject({
+        method: "DELETE",
+        url:
+          "/api/v1/hosts/" +
+          hostId +
+          "/networks/" +
+          (smokeNet ? smokeNet.id : "none"),
+      })
+      .catch(() => undefined);
+  }
+  {
     // Real Trivy scan of an already-pulled image on the live Engine.
     // The scanner image (aquasec/trivy:0.58.2) is pulled by the service
     // on first use, so the first run is dominated by the scanner pull.

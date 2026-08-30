@@ -18,6 +18,7 @@ import type {
   ImagePullInput,
   ImageScanInput,
   ImageScanReport,
+  NetworkAttachInput,
   NetworkCreateInput,
   PruneResourceKind,
   TerminalFrame,
@@ -183,6 +184,10 @@ const networkCreateBody = Type.Object({
   name: Type.String({ minLength: 1, maxLength: 255 }),
   driver: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
   internal: Type.Optional(Type.Boolean()),
+});
+const networkAttachBody = Type.Object({
+  containerId: Type.String({ minLength: 1, maxLength: 256 }),
+  ipamConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 const forceQuery = Type.Object({ force: Type.Optional(Type.Boolean()) });
 const actionParams = Type.Object({
@@ -1491,6 +1496,107 @@ export async function buildApp(
       audit.record({
         actorId: user.id,
         action: "network.delete",
+        hostId,
+        resourceKind: "network",
+        resourceId: networkId,
+        result: operation.status === "succeeded" ? "success" : "failure",
+        requestId: request.id,
+      });
+      return sendData(reply, operation, 202);
+    },
+  );
+
+  app.post(
+    "/api/v1/hosts/:hostId/networks/:networkId/connect",
+    { schema: { params: networkParams, body: networkAttachBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId, networkId } = request.params as {
+        hostId: string;
+        networkId: string;
+      };
+      const body = request.body as NetworkAttachInput;
+      assertHostAccess(user, hostId, {
+        action: "network.attach",
+        resourceKind: "network",
+        resourceId: networkId,
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: "network.attach",
+        hostId,
+        resourceKind: "network",
+        resourceId: networkId,
+        requestId: request.id,
+      });
+      const operation = await operations.run(
+        {
+          kind: "network.attach",
+          hostId,
+          idempotencyKey: getIdempotencyKey(request),
+          requestId: request.id,
+        },
+        (signal) =>
+          registry.networkConnect(
+            hostId,
+            networkId,
+            { containerId: body.containerId, ipamConfig: body.ipamConfig },
+            signal,
+          ),
+      );
+      audit.record({
+        actorId: user.id,
+        action: "network.attach",
+        hostId,
+        resourceKind: "network",
+        resourceId: networkId,
+        result: operation.status === "succeeded" ? "success" : "failure",
+        requestId: request.id,
+      });
+      return sendData(reply, operation, 202);
+    },
+  );
+  app.post(
+    "/api/v1/hosts/:hostId/networks/:networkId/disconnect",
+    { schema: { params: networkParams, body: networkAttachBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId, networkId } = request.params as {
+        hostId: string;
+        networkId: string;
+      };
+      const body = request.body as NetworkAttachInput;
+      assertHostAccess(user, hostId, {
+        action: "network.detach",
+        resourceKind: "network",
+        resourceId: networkId,
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: "network.detach",
+        hostId,
+        resourceKind: "network",
+        resourceId: networkId,
+        requestId: request.id,
+      });
+      const operation = await operations.run(
+        {
+          kind: "network.detach",
+          hostId,
+          idempotencyKey: getIdempotencyKey(request),
+          requestId: request.id,
+        },
+        (signal) =>
+          registry.networkDisconnect(
+            hostId,
+            networkId,
+            body.containerId,
+            signal,
+          ),
+      );
+      audit.record({
+        actorId: user.id,
+        action: "network.detach",
         hostId,
         resourceKind: "network",
         resourceId: networkId,

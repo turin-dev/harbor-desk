@@ -193,6 +193,11 @@ export interface NetworkCreateInput {
   internal?: boolean;
 }
 
+export interface NetworkAttachInput {
+  containerId: string;
+  ipamConfig?: Record<string, unknown>;
+}
+
 export interface EngineSummary {
   id?: string;
   version?: string;

@@ -4,6 +4,7 @@ import type {
   ContainerCreateInput,
   HubSearchResponse,
   PruneResourceKind,
+  NetworkAttachInput,
   NetworkCreateInput,
   VolumeCreateInput,
 } from "@harbor/contracts";
@@ -394,6 +395,46 @@ export function useDeleteNetwork(hostId: string | undefined) {
       gateway.deleteNetwork(hostId!, networkId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["networks", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
+    },
+  });
+}
+
+export function useNetworkConnect(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      networkId,
+      input,
+    }: {
+      networkId: string;
+      input: NetworkAttachInput;
+    }) => gateway.connectNetwork(hostId!, networkId, input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["networks", hostId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["network-inspect", hostId],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
+    },
+  });
+}
+
+export function useNetworkDisconnect(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      networkId,
+      containerId,
+    }: {
+      networkId: string;
+      containerId: string;
+    }) => gateway.disconnectNetwork(hostId!, networkId, containerId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["networks", hostId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["network-inspect", hostId],
+      });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", hostId] });
     },
   });

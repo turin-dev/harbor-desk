@@ -1181,3 +1181,75 @@ test("cancels a running scan, aborts the scanner, and keeps the host online", as
     .data.find((item: { id: string }) => item.id === host.id);
   assert.equal(cancelledHost.status, "online");
 });
+
+test("attaches and detaches containers from remote networks", async (t) => {
+  const harbor = await buildApp(testConfig);
+  t.after(async () => harbor.app.close());
+  const host = await harbor.registry.add({
+    displayName: "Network attach engine",
+    endpoint: "http://127.0.0.1:1",
+  });
+  const records = (
+    harbor.registry as unknown as {
+      records: Map<string, { client: Record<string, unknown> }>;
+    }
+  ).records.get(host.id);
+  assert.ok(records, "expected the seeded host record");
+  records.client.probe = scanProbeStub();
+  records.client.createEventStream = async () => (async function* () {})();
+  records.client.requestStream = async () => (async function* () {})();
+  let connectArgs: { networkId?: string; input?: { containerId?: string } } =
+    {};
+  let disconnectArgs: { networkId?: string; containerId?: string } = {};
+  records.client.networkConnect = async (
+    networkId: string,
+    input: { containerId: string },
+  ) => {
+    connectArgs = { networkId, input };
+  };
+  records.client.networkDisconnect = async (
+    networkId: string,
+    containerId: string,
+  ) => {
+    disconnectArgs = { networkId, containerId };
+  };
+  await harbor.registry.test(host.id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await harbor.registry.test(host.id);
+
+  const attach = await harbor.app.inject({
+    method: "POST",
+    url: `/api/v1/hosts/${host.id}/networks/net-123/connect`,
+    payload: { containerId: "ctr-456" },
+  });
+  assert.equal(attach.statusCode, 202);
+  assert.equal(attach.json().data.kind, "network.attach");
+  assert.equal(attach.json().data.status, "succeeded");
+  assert.equal(connectArgs.networkId, "net-123");
+  assert.equal(connectArgs.input?.containerId, "ctr-456");
+
+  const detach = await harbor.app.inject({
+    method: "POST",
+    url: `/api/v1/hosts/${host.id}/networks/net-123/disconnect`,
+    payload: { containerId: "ctr-456" },
+  });
+  assert.equal(detach.statusCode, 202);
+  assert.equal(detach.json().data.kind, "network.detach");
+  assert.equal(detach.json().data.status, "succeeded");
+  assert.deepEqual(disconnectArgs, {
+    networkId: "net-123",
+    containerId: "ctr-456",
+  });
+
+  const audit = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/audit?limit=20",
+  });
+  assert.ok(
+    (audit.json().data ?? []).some(
+      (event: { action: string; result: string }) =>
+        event.action === "network.attach" && event.result === "success",
+    ),
+    "expected the network attach audit event",
+  );
+});

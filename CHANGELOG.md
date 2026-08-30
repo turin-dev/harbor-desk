@@ -9,6 +9,14 @@ still change between minor versions.
 
 ### Added
 
+- Network attach and detach: the Networks screen can now connect an
+  existing remote container to a network… and remove it again… without
+  recreating the container. Each network row offers an Attach action that
+  lists the host's live containers to pick from, and the network detail
+  drawer lists attached containers with a per-container Detach action.
+  Both run through the new gateway endpoints
+  `POST /api/v1/hosts/{hostId}/networks/{networkId}/connect` and
+  `.../disconnect` (operator role, audited, cancellable 202 operations).
 - Vulnerability scanning: the Security screen can now run a real
   vulnerability scan against a selected remote image. The scan runs
   a Trivy container on the remote host through the Engine API only,

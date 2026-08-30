@@ -14,6 +14,7 @@ import type {
   ImageSummary,
   PruneResourceKind,
   PruneSummary,
+  NetworkAttachInput,
   NetworkCreateInput,
   NetworkSummary,
   TerminalSession,
@@ -483,6 +484,42 @@ export class HostRegistry {
     this.assertOnline(record);
     try {
       await record.client.deleteNetwork(networkId, signal);
+      this.markOnline(record);
+    } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
+      this.markOfflineIfConnectionError(record, error);
+      throw this.upstreamError(error);
+    }
+  }
+
+  public async networkConnect(
+    hostId: string,
+    networkId: string,
+    input: NetworkAttachInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const record = this.get(hostId);
+    this.assertOnline(record);
+    try {
+      await record.client.networkConnect(networkId, input, signal);
+      this.markOnline(record);
+    } catch (error) {
+      if (isOperationCancelledError(error)) throw error;
+      this.markOfflineIfConnectionError(record, error);
+      throw this.upstreamError(error);
+    }
+  }
+
+  public async networkDisconnect(
+    hostId: string,
+    networkId: string,
+    containerId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const record = this.get(hostId);
+    this.assertOnline(record);
+    try {
+      await record.client.networkDisconnect(networkId, containerId, signal);
       this.markOnline(record);
     } catch (error) {
       if (isOperationCancelledError(error)) throw error;

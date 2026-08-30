@@ -15,6 +15,7 @@ import type {
   ImageSummary,
   ImageScanInput,
   ImageScanReport,
+  NetworkAttachInput,
   NetworkCreateInput,
   NetworkSummary,
   Operation,
@@ -355,6 +356,28 @@ export const gateway = {
       `/api/v1/hosts/${encodeURIComponent(hostId)}/networks/${encodeURIComponent(networkId)}`,
       {
         method: "DELETE",
+        headers: { "idempotency-key": crypto.randomUUID() },
+      },
+    ),
+  connectNetwork: (
+    hostId: string,
+    networkId: string,
+    input: NetworkAttachInput,
+  ) =>
+    request<Operation>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/networks/${encodeURIComponent(networkId)}/connect`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: { "idempotency-key": crypto.randomUUID() },
+      },
+    ),
+  disconnectNetwork: (hostId: string, networkId: string, containerId: string) =>
+    request<Operation>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/networks/${encodeURIComponent(networkId)}/disconnect`,
+      {
+        method: "POST",
+        body: JSON.stringify({ containerId }),
         headers: { "idempotency-key": crypto.randomUUID() },
       },
     ),

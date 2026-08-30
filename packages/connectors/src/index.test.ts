@@ -258,6 +258,32 @@ test("maps prune endpoints to a normalized prune summary", async () => {
   assert.deepEqual(await networks.pruneNetworks(), {
     networksDeleted: ["n1"],
   });
+  const attach = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  (attach as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    opts: { method?: string; body?: unknown } = {},
+  ) => {
+    assert.equal(path, "/networks/abc123/connect");
+    assert.equal(opts.method, "POST");
+    assert.deepEqual(opts.body, {
+      Container: "ctr-1",
+      IPAMConfig: { IPv4Address: "10.0.0.5" },
+    });
+  };
+  await attach.networkConnect("abc123", {
+    containerId: "ctr-1",
+    ipamConfig: { IPv4Address: "10.0.0.5" },
+  });
+  const detach = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });
+  (detach as unknown as { requestJson: unknown }).requestJson = async (
+    path: string,
+    opts: { method?: string; body?: unknown } = {},
+  ) => {
+    assert.equal(path, "/networks/abc123/disconnect");
+    assert.equal(opts.method, "POST");
+    assert.deepEqual(opts.body, { Container: "ctr-1" });
+  };
+  await detach.networkDisconnect("abc123", "ctr-1");
 });
 test("builds the Docker Engine container create body from run options", async () => {
   const client = new DockerEngineClient({ endpoint: "http://127.0.0.1:1" });

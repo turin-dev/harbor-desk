@@ -8,6 +8,8 @@ import {
   DeleteOutline,
   Image as ImageIcon,
   Lan,
+  Link,
+  LinkOff,
   Refresh,
   Search,
   Storage,
@@ -54,6 +56,7 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState.js";
 import { PageHeader } from "../components/PageHeader.js";
 import {
+  useContainers,
   useCreateNetwork,
   useCancelOperation,
   useCreateVolume,
@@ -66,6 +69,8 @@ import {
   useImages,
   usePullImage,
   useNetworkInspect,
+  useNetworkConnect,
+  useNetworkDisconnect,
   useNetworks,
   useOperation,
   usePruneResources,
@@ -967,6 +972,9 @@ function NetworksView({ hostId }: { hostId?: string }) {
   );
   const create = useCreateNetwork(hostId);
   const remove = useDeleteNetwork(hostId);
+  const attach = useNetworkConnect(hostId);
+  const detach = useNetworkDisconnect(hostId);
+  const containers = useContainers(hostId, hostOnline);
   const prune = usePruneResources(hostId);
   const cancel = useCancelOperation();
   const { data: user } = useCurrentUser();
@@ -982,6 +990,8 @@ function NetworksView({ hostId }: { hostId?: string }) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<NetworkSummary>();
   const [deleteTarget, setDeleteTarget] = useState<NetworkSummary>();
+  const [attachTarget, setAttachTarget] = useState<NetworkSummary>();
+  const [attachContainerId, setAttachContainerId] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [driver, setDriver] = useState("bridge");
@@ -1132,6 +1142,18 @@ function NetworksView({ hostId }: { hostId?: string }) {
                     <TableCell align="right">
                       <IconButton
                         size="small"
+                        disabled={!hostOnline || attach.isPending}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setAttachContainerId("");
+                          setAttachTarget(row);
+                        }}
+                        aria-label={`Attach container to network ${row.name}`}
+                      >
+                        <Link fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
                         color="error"
                         disabled={!hostOnline || remove.isPending}
                         onClick={(event) => {
@@ -1171,6 +1193,87 @@ function NetworksView({ hostId }: { hostId?: string }) {
         query={selectedInspect}
         onClose={() => setSelected(undefined)}
         onCopy={(value) => copyValue(value, showToast)}
+        children={
+          <Stack spacing={1} sx={{ mt: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 650 }}>
+              Connected containers
+            </Typography>
+            {selectedInspect.data
+              ? (() => {
+                  const containers = (selectedInspect.data.Containers ??
+                    {}) as Record<string, { Name?: string }>;
+                  const entries = Object.entries(containers);
+                  if (!entries.length) {
+                    return (
+                      <Typography variant="body2" color="text.secondary">
+                        No containers are connected to this network.
+                      </Typography>
+                    );
+                  }
+                  return entries.map(([containerId, entry]) => (
+                    <Stack
+                      key={containerId}
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      spacing={1}
+                    >
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: "var(--dd-font-mono)",
+                          fontSize: 11,
+                        }}
+                        noWrap
+                      >
+                        {entry.Name?.replace(/^\//, "") || containerId}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={!hostOnline || detach.isPending}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          detach.mutate(
+                            {
+                              networkId: selected!.id,
+                              containerId,
+                            },
+                            {
+                              onSuccess: (operation) =>
+                                showToast(
+                                  operation.status === "succeeded"
+                                    ? "Container detached from the remote network."
+                                    : operation.status === "cancelled"
+                                      ? "Network detach cancelled."
+                                      : (operation.message ??
+                                        "Network detach failed."),
+                                  operation.status === "succeeded"
+                                    ? "success"
+                                    : operation.status === "cancelled"
+                                      ? "info"
+                                      : "error",
+                                ),
+                              onError: (error) =>
+                                showToast(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Network detach failed.",
+                                  "error",
+                                ),
+                            },
+                          );
+                        }}
+                        aria-label="Detach container from network"
+                      >
+                        <LinkOff fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ));
+                })()
+              : null}
+          </Stack>
+        }
       />
       <Dialog
         open={createOpen}
@@ -1217,6 +1320,76 @@ function NetworksView({ hostId }: { hostId?: string }) {
             disabled={create.isPending}
           >
             {create.isPending ? "Creating…" : "Create network"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={Boolean(attachTarget)}
+        onClose={() => !attach.isPending && setAttachTarget(undefined)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Attach container to network</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Connect an existing container to{" "}
+              {attachTarget?.name ?? "the network"} on the remote host.
+            </Typography>
+            <TextField
+              select
+              label="Container"
+              value={attachContainerId}
+              onChange={(event) => setAttachContainerId(event.target.value)}
+              disabled={!containers.data?.length}
+              helperText={
+                !containers.data?.length
+                  ? "No containers are available on this host."
+                  : undefined
+              }
+            >
+              {(containers.data ?? []).map((container) => (
+                <MenuItem key={container.id} value={container.id}>
+                  {container.name} ({container.state})
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setAttachTarget(undefined)}
+            disabled={attach.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={attach.isPending || !attachTarget || !attachContainerId}
+            onClick={() => {
+              const target = attachTarget;
+              if (!target || !attachContainerId) return;
+              attach.mutate(
+                {
+                  networkId: target.id,
+                  input: { containerId: attachContainerId },
+                },
+                {
+                  onSuccess: (operation) => {
+                    setAttachTarget(undefined);
+                    setAttachContainerId("");
+                    showToast(
+                      operation.status === "succeeded"
+                        ? "Container attached to the remote network."
+                        : (operation.message ?? "Network attach failed."),
+                      operation.status === "succeeded" ? "success" : "error",
+                    );
+                  },
+                },
+              );
+            }}
+          >
+            {attach.isPending ? "Attaching…" : "Attach container"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1392,6 +1565,7 @@ function ResourceDetailDrawer({
   query,
   onClose,
   onCopy,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -1404,6 +1578,7 @@ function ResourceDetailDrawer({
   };
   onClose: () => void;
   onCopy: (value: string) => void;
+  children?: ReactNode;
 }) {
   return (
     <Drawer
@@ -1461,6 +1636,7 @@ function ResourceDetailDrawer({
           </IconButton>
         </Stack>
         <Divider />
+        {children}
         <Box
           sx={{
             flex: 1,
