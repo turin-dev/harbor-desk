@@ -756,6 +756,24 @@ export class DockerEngineClient {
       try {
         if (signal?.aborted) throw this.abortError();
         await this.actionContainer(created.Id, "start", signal);
+        let finished = false;
+        for (
+          let waitAttempt = 0;
+          waitAttempt < 100 && !finished;
+          waitAttempt += 1
+        ) {
+          let finishedState = "exited";
+          try {
+            const rows = await this.listContainers(true, "");
+            if (Array.isArray(rows))
+              finishedState =
+                rows.find((row) => row.id === created.Id)?.state ?? "unknown";
+          } catch {
+            finishedState = "exited";
+          }
+          finished = finishedState === "exited";
+          if (!finished) await sleep(200);
+        }
         const response = await this.requestStream(
           `/containers/${created.Id}/logs?stdout=1&stderr=1&timestamps=0&follow=0`,
           signal ? { signal } : {},

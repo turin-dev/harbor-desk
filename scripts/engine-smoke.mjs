@@ -209,7 +209,9 @@ try {
     image: baseImage,
     restartPolicy: "no",
     ...writerCommand,
-    volumeMounts: [{ source: volumeName, target: writerTarget }],
+    volumeMounts: [
+      { source: volumeName, target: writerTarget, readWrite: true },
+    ],
   });
   await client.actionContainer(browseWriterId, "start");
   let writerDone = false;
@@ -221,6 +223,21 @@ try {
     if (!writerDone) await new Promise((resolve) => setTimeout(resolve, 200));
   }
   check("volume marker container finished", writerDone);
+  try {
+    const writerLogs = await client.containerLogs(browseWriterId, "50", false);
+    const writerFailure = writerLogs.match(
+      /access is denied|read-only file system|cannot create|not recognized|cannot find/i,
+    );
+    if (writerFailure)
+      check(
+        "volume marker files written",
+        false,
+        "logs=" + writerLogs.trim().split("\n").slice(-3).join("|"),
+      );
+  } catch {
+    // Log inspection is diagnostic only; the marker checks below remain
+    // the source of truth for the writer outcome.
+  }
   await client.deleteContainer(browseWriterId, true);
   browseWriterId = null;
 
@@ -260,7 +277,7 @@ try {
 
   createdNetworkId = await client.createNetwork({
     name: networkName,
-    driver: "bridge",
+    driver: isWindowsEngine ? "nat" : "bridge",
   });
   const networks = await client.listNetworks();
   check(
@@ -373,10 +390,16 @@ try {
     finalProbe.summary.version === probe.summary.version,
   );
 } catch (error) {
+  const responseBody =
+    error && typeof error === "object" && typeof error.responseBody === "string"
+      ? " body=" + error.responseBody.slice(0, 200)
+      : "";
   check(
     "unexpected failure",
     false,
-    error instanceof Error ? error.message : String(error),
+    (error instanceof Error ? error.message : String(error)) +
+      responseBody +
+      (error instanceof Error ? "|" + (error.stack ?? "").split("\n")[1] : ""),
   );
 } finally {
   await cleanUp();
