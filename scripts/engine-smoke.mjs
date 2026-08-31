@@ -69,7 +69,9 @@ try {
   // real check.
   let ready = false;
   let lastProbeError;
-  for (let attempt = 0; attempt < 60 && !ready; attempt += 1) {
+  // Windows runners occasionally take several minutes for the Docker
+  // Desktop named pipe to appear, so give the engine a 5-minute window.
+  for (let attempt = 0; attempt < 150 && !ready; attempt += 1) {
     try {
       await client.probe();
       ready = true;
