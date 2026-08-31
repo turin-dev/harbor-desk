@@ -262,6 +262,11 @@ const R_CLICK_FIRST_EXTENSION_OPEN = `(() => {
   btn.click();
   return "clicked";
 })()`;
+const R_LAST_DIALOG_TEXT = `(() => {
+  const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+  const d = dialogs[dialogs.length - 1];
+  return d ? (d.textContent || "").slice(0, 300) : "";
+})()`;
 const R_IFRAME_SRCDOC = `(() => {
   const iframes = Array.from(document.querySelectorAll("iframe"));
   const f = iframes.find((i) => (i.getAttribute("srcdoc") || "").length > 0);
@@ -530,24 +535,42 @@ try {
   let extOpened = "not-found";
   for (let attempt = 0; attempt < 10; attempt += 1) {
     extOpened = await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
-    if (extOpened === "clicked") break;
-    await sleep(500);
+    if (extOpened === "clicked") {
+      const dialogText = await evaluate(cdp, R_LAST_DIALOG_TEXT);
+      if (dialogText.includes("Harbor Insights")) break;
+    }
+    await sleep(1000);
   }
   check(
     "clicked the extension Open button",
     extOpened === "clicked",
     extOpened,
   );
-  await waitUntil(
-    cdp,
-    async () =>
-      (await evaluate(cdp, R_IFRAME_SRCDOC)).includes(
-        "Live cluster-wide usage trends",
-      ),
-    "extension web iframe",
-    30000,
-  );
-  check("extension web page rendered in the in-app dialog", true);
+  let extIframeOk = false;
+  try {
+    await waitUntil(
+      cdp,
+      async () =>
+        (await evaluate(cdp, R_IFRAME_SRCDOC)).includes(
+          "Live cluster-wide usage trends",
+        ),
+      "extension web iframe",
+      30000,
+    );
+    extIframeOk = true;
+  } catch (error) {
+    const dialogText =
+      (await evaluate(cdp, R_LAST_DIALOG_TEXT).catch(() => "")) || "";
+    const srcdoc = (await evaluate(cdp, R_IFRAME_SRCDOC).catch(() => "")) || "";
+    throw new Error(
+      (error instanceof Error ? error.message : String(error)) +
+        " | dialog=" +
+        JSON.stringify(dialogText) +
+        " | srcdoc=" +
+        JSON.stringify(srcdoc.slice(0, 200)),
+    );
+  }
+  check("extension web page rendered in the in-app dialog", extIframeOk);
   const closed = await evaluate(cdp, R_CLOSE_EXTENSION_DIALOG);
   check("closed the extension dialog", closed === "clicked", closed);
 } catch (error) {
