@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   safeStorage,
+  session,
   shell,
   Tray,
 } from "electron";
@@ -33,6 +34,7 @@ import {
   secureTokenKey,
 } from "./main-policy.js";
 import { parseConnectionInput } from "./connection-input.js";
+import type { WebContents } from "electron";
 import { buildContextTar } from "./build-context.js";
 import {
   checkForUpdates,
@@ -414,6 +416,14 @@ function attachRendererDiagnostics(window: BrowserWindow): void {
 }
 
 async function createWindow(): Promise<void> {
+  // Extension catalog pages are rendered in an in-app <iframe>; deny popups
+  // from any webview content the gateway pages might open.
+  app.on("web-contents-created", (_event, contents: WebContents) => {
+    if (contents.getType() === "webview") {
+      contents.setWindowOpenHandler(() => ({ action: "deny" }));
+    }
+  });
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,

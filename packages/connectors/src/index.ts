@@ -1297,3 +1297,6 @@ function decodeDockerStream(buffer: Buffer): string {
     "utf8",
   );
 }
+
+export { K8sClusterClient, K8sApiError } from "./k8s-client.js";
+export type { K8sClientOptions } from "./k8s-client.js";

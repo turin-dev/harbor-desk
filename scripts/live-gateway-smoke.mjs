@@ -282,6 +282,170 @@ try {
     row?.status ?? "host missing",
   );
 
+  // --- Gateway-owned surfaces: extensions, k8s (offline cluster), assistant ---
+
+  const extList = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/extensions",
+  });
+  check(
+    "extensions catalog is served by the gateway",
+    extList.statusCode === 200 && (extList.json().data ?? []).length >= 2,
+    "http=" + extList.statusCode,
+  );
+
+  const extInstall = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/extensions/harbor-insights/install",
+  });
+  check(
+    "extension install flips to installed",
+    extInstall.statusCode === 200 &&
+      extInstall.json().data.status === "installed",
+    "http=" + extInstall.statusCode,
+  );
+
+  const extWeb = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/extensions/harbor-insights/web",
+  });
+  check(
+    "extension web page is rendered by the gateway",
+    extWeb.statusCode === 200 &&
+      String(extWeb.headers["content-type"] ?? "").includes("text/html") &&
+      extWeb.body.includes("Harbor Insights"),
+    "http=" + extWeb.statusCode,
+  );
+
+  const extUninstall = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/extensions/harbor-insights/uninstall",
+  });
+  check(
+    "extension uninstall flips back to available",
+    extUninstall.statusCode === 200 &&
+      extUninstall.json().data.status === "available",
+    "http=" + extUninstall.statusCode,
+  );
+
+  const extMissing = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/extensions/does-not-exist",
+  });
+  check(
+    "unknown extension returns 404 extension_not_found",
+    extMissing.statusCode === 404 &&
+      extMissing.json().error.code === "extension_not_found",
+    "http=" + extMissing.statusCode,
+  );
+
+  const k8sRegister = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/k8s/clusters",
+    payload: {
+      displayName: "live-smoke-cluster",
+      endpoint: "http://127.0.0.1:9",
+      token: "smoke-token",
+    },
+  });
+  const k8sCluster =
+    k8sRegister.statusCode === 200 || k8sRegister.statusCode === 201
+      ? k8sRegister.json().data
+      : null;
+  check(
+    "k8s cluster registration succeeds for an unreachable endpoint",
+    k8sCluster !== null && k8sCluster.status === "offline",
+    "http=" +
+      k8sRegister.statusCode +
+      ", status=" +
+      (k8sCluster?.status ?? "n/a"),
+  );
+
+  if (k8sCluster) {
+    const k8sList = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/k8s/clusters",
+    });
+    check(
+      "k8s cluster appears in the gateway list",
+      k8sList.statusCode === 200 &&
+        (k8sList.json().data ?? []).some((row) => row.id === k8sCluster.id),
+      (k8sList.json().data ?? []).length + " cluster(s)",
+    );
+
+    const k8sTest = await harbor.app.inject({
+      method: "POST",
+      url: "/api/v1/k8s/clusters/" + k8sCluster.id + "/test",
+    });
+    check(
+      "k8s test re-probe reports offline for an unreachable cluster",
+      k8sTest.statusCode === 200 && k8sTest.json().data.status === "offline",
+      "http=" + k8sTest.statusCode,
+    );
+
+    const k8sNs = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/k8s/clusters/" + k8sCluster.id + "/namespaces",
+    });
+    check(
+      "k8s namespaces map an unreachable cluster to 502 cluster_unavailable",
+      k8sNs.statusCode === 502 &&
+        k8sNs.json().error.code === "cluster_unavailable",
+      "http=" + k8sNs.statusCode,
+    );
+
+    const k8sDelete = await harbor.app.inject({
+      method: "DELETE",
+      url: "/api/v1/k8s/clusters/" + k8sCluster.id,
+    });
+    const k8sListAfter = await harbor.app.inject({
+      method: "GET",
+      url: "/api/v1/k8s/clusters",
+    });
+    check(
+      "k8s cluster removal empties the gateway list",
+      k8sDelete.statusCode === 204 &&
+        (k8sListAfter.json().data ?? []).length === 0,
+      "http=" + k8sDelete.statusCode,
+    );
+  } else {
+    skip(
+      "k8s cluster lifecycle",
+      "registration did not return a cluster (see previous check)",
+    );
+  }
+
+  const asstAnalyze = await harbor.app.inject({
+    method: "GET",
+    url: "/api/v1/hosts/" + hostId + "/assistant/analyze",
+  });
+  const asstData =
+    asstAnalyze.statusCode === 200 ? asstAnalyze.json().data : null;
+  check(
+    "assistant analyze returns insights and proposals",
+    asstAnalyze.statusCode === 200 &&
+      Array.isArray(asstData?.insights) &&
+      Array.isArray(asstData?.proposals) &&
+      asstData.hostId === hostId,
+    "http=" + asstAnalyze.statusCode,
+  );
+
+  const asstBad = await harbor.app.inject({
+    method: "POST",
+    url: "/api/v1/hosts/" + hostId + "/assistant/apply",
+    payload: {
+      resourceKind: "container",
+      resourceId: "nope",
+      action: "explode",
+    },
+  });
+  check(
+    "assistant apply rejects an unsupported action with 422",
+    asstBad.statusCode === 422 &&
+      asstBad.json().error.code === "unsupported_action",
+    "http=" + asstBad.statusCode,
+  );
+
   const hub = await harbor.app.inject({
     method: "GET",
     url: "/api/v1/hub/search?q=nginx&limit=5",

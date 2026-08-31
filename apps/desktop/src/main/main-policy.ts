@@ -12,8 +12,9 @@ export function buildMainFrameCsp(connectOrigins: string[]): string {
   const connect = ["'self'", ...connectOrigins].join(" ");
   return (
     "default-src 'self'; base-uri 'self'; object-src 'none'; " +
-    "frame-ancestors 'none'; script-src 'self' 'unsafe-inline'; " +
-    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+    "frame-src 'self'; frame-ancestors 'none'; " +
+    "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data:; " +
     "connect-src " +
     connect +
     "; font-src 'self' data:;"

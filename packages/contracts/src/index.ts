@@ -404,3 +404,95 @@ export const gatewayPaths = {
   hosts: "/api/v1/hosts",
   stream: "/api/v1/stream",
 } as const;
+
+export type K8sClusterStatus = "online" | "offline" | "unknown";
+
+export interface K8sVersion {
+  major?: string;
+  minor?: string;
+  gitVersion?: string;
+}
+
+export interface K8sNamespace {
+  name: string;
+  status?: string;
+}
+
+export interface K8sPod {
+  name: string;
+  namespace: string;
+  phase: string;
+  nodeName?: string;
+  restarts?: number;
+  ready?: boolean;
+  containerImage?: string;
+  createdAt?: string;
+}
+
+export interface K8sCluster {
+  id: string;
+  displayName: string;
+  endpoint: string;
+  status: K8sClusterStatus;
+  serverVersion?: string;
+  lastSeenAt?: string;
+  connectionMode: "bearer" | "mtls" | "development-http";
+}
+
+export interface K8sClusterRegistrationInput {
+  displayName: string;
+  endpoint: string;
+  token?: string;
+  ca?: string;
+  cert?: string;
+  key?: string;
+}
+
+export type ExtensionStatus = "available" | "installed";
+
+export interface ExtensionSummary {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  description: string;
+  category?: string;
+  homepageUrl?: string;
+  /** Isolated web interface base URL served by the gateway. */
+  webUrl?: string;
+  status: ExtensionStatus;
+  approved: boolean;
+}
+
+export interface AssistantInsight {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  detail: string;
+  resourceKind?: string;
+  resourceId?: string;
+}
+
+export interface AssistantProposal {
+  id: string;
+  title: string;
+  summary: string;
+  resourceKind: "container" | "image" | "volume" | "network";
+  resourceId: string;
+  action: string;
+  risk: "low" | "medium" | "high";
+  reversible: boolean;
+}
+
+export interface AssistantAnalysis {
+  hostId: string;
+  generatedAt: string;
+  insights: AssistantInsight[];
+  proposals: AssistantProposal[];
+}
+
+export interface AssistantApplyInput {
+  resourceKind: AssistantProposal["resourceKind"];
+  resourceId: string;
+  action: string;
+}

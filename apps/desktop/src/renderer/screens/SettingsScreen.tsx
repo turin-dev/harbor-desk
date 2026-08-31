@@ -167,14 +167,14 @@ export function SettingsScreen() {
             <UnavailableSettings
               title="Kubernetes"
               icon={<DeveloperBoard />}
-              description="Kubernetes clusters are registered separately from Docker hosts and credentials remain in the server secret store."
+              description="Kubernetes clusters are registered on the Server Gateway with bearer tokens or mTLS material. Read-only probes cover version, namespaces, and pods; credentials never leave the gateway secret store."
             />
           )}
           {active === "extensions" && (
             <UnavailableSettings
               title="Extensions"
               icon={<Extension />}
-              description="Only administrator-allowed OCI extensions can appear here. The catalog adapter is not configured."
+              description="Only administrator-approved extensions appear in the gateway catalog. Extension web interfaces are rendered by the gateway, never by this client."
             />
           )}
           {active === "security" && (
@@ -188,7 +188,7 @@ export function SettingsScreen() {
             <UnavailableSettings
               title="AI"
               icon={<Palette />}
-              description="Choose an approved provider on the gateway before AI suggestions or action approvals become available."
+              description="The assistant uses deterministic, rule-based analysis on the gateway — no LLM provider is required. Insights and proposed actions are applied through the same audited API."
             />
           )}
         </Paper>

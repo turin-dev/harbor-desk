@@ -3,6 +3,8 @@ import type {
   ApiResponse,
   AuditEvent,
   AuthProvider,
+  AssistantAnalysis,
+  AssistantApplyInput,
   ContainerCreateInput,
   ContainerSummary,
   CurrentUser,
@@ -15,6 +17,11 @@ import type {
   ImageSummary,
   ImageScanInput,
   ImageScanReport,
+  ExtensionSummary,
+  K8sCluster,
+  K8sClusterRegistrationInput,
+  K8sNamespace,
+  K8sPod,
   NetworkAttachInput,
   NetworkCreateInput,
   NetworkSummary,
@@ -189,6 +196,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
 
     if (response.status === 204) return undefined as T;
+    // Extension web pages are served as raw text/html, not the usual
+    // { data } envelope. Sniff the content-type (guarded so header-less
+    // unit-test mocks take the JSON path untouched).
+    const contentType = response.headers?.get?.("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      return (await response.text()) as T;
+    }
     const body = (await response.json()) as ApiResponse<T>;
     return body.data;
   } catch (error) {
@@ -429,6 +443,62 @@ export const gateway = {
     request<TerminalSession>(
       `/api/v1/hosts/${encodeURIComponent(hostId)}/containers/${encodeURIComponent(containerId)}/exec`,
       { method: "POST", body: JSON.stringify({ command }) },
+    ),
+  getK8sClusters: () => request<K8sCluster[]>("/api/v1/k8s/clusters"),
+  registerK8sCluster: (input: K8sClusterRegistrationInput) =>
+    request<K8sCluster>("/api/v1/k8s/clusters", {
+      method: "POST",
+      body: JSON.stringify(input),
+      headers: { "idempotency-key": crypto.randomUUID() },
+    }),
+  removeK8sCluster: (clusterId: string) =>
+    request<void>(`/api/v1/k8s/clusters/${encodeURIComponent(clusterId)}`, {
+      method: "DELETE",
+    }),
+  testK8sCluster: (clusterId: string) =>
+    request<K8sCluster>(
+      `/api/v1/k8s/clusters/${encodeURIComponent(clusterId)}/test`,
+      { method: "POST", body: "{}" },
+    ),
+  getK8sNamespaces: (clusterId: string) =>
+    request<K8sNamespace[]>(
+      `/api/v1/k8s/clusters/${encodeURIComponent(clusterId)}/namespaces`,
+    ),
+  getK8sPods: (clusterId: string) =>
+    request<K8sPod[]>(
+      `/api/v1/k8s/clusters/${encodeURIComponent(clusterId)}/pods`,
+    ),
+  getExtensions: () => request<ExtensionSummary[]>("/api/v1/extensions"),
+  getExtension: (extensionId: string) =>
+    request<ExtensionSummary>(
+      `/api/v1/extensions/${encodeURIComponent(extensionId)}`,
+    ),
+  installExtension: (extensionId: string) =>
+    request<ExtensionSummary>(
+      `/api/v1/extensions/${encodeURIComponent(extensionId)}/install`,
+      { method: "POST", body: "{}" },
+    ),
+  uninstallExtension: (extensionId: string) =>
+    request<ExtensionSummary>(
+      `/api/v1/extensions/${encodeURIComponent(extensionId)}/uninstall`,
+      { method: "POST", body: "{}" },
+    ),
+  assistantAnalyze: (hostId: string) =>
+    request<AssistantAnalysis>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/assistant/analyze`,
+    ),
+  assistantApply: (hostId: string, input: AssistantApplyInput) =>
+    request<{ applied: true; resourceId: string; action: string }>(
+      `/api/v1/hosts/${encodeURIComponent(hostId)}/assistant/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: { "idempotency-key": crypto.randomUUID() },
+      },
+    ),
+  getExtensionWeb: (extensionId: string) =>
+    request<string>(
+      `/api/v1/extensions/${encodeURIComponent(extensionId)}/web`,
     ),
 };
 

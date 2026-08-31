@@ -507,6 +507,102 @@ paths:
       responses:
         "101":
           description: Switching protocols
+  /api/v1/k8s/clusters:
+    get:
+      responses:
+        "200":
+          description: Registered Kubernetes clusters
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/K8sClusterRegistrationInput"
+      responses:
+        "201":
+          description: Registered Kubernetes cluster (admin; unreachable endpoints register as offline)
+  /api/v1/k8s/clusters/{clusterId}:
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/clusterId"
+      responses:
+        "204":
+          description: Removed Kubernetes cluster (admin)
+  /api/v1/k8s/clusters/{clusterId}/test:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/clusterId"
+      responses:
+        "200":
+          description: Re-probed cluster status (admin)
+  /api/v1/k8s/clusters/{clusterId}/namespaces:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/clusterId"
+      responses:
+        "200":
+          description: Kubernetes namespaces
+  /api/v1/k8s/clusters/{clusterId}/pods:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/clusterId"
+      responses:
+        "200":
+          description: Kubernetes pods
+  /api/v1/extensions:
+    get:
+      responses:
+        "200":
+          description: Approved extension catalog
+  /api/v1/extensions/{extensionId}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/extensionId"
+      responses:
+        "200":
+          description: Extension summary
+  /api/v1/extensions/{extensionId}/install:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/extensionId"
+      responses:
+        "200":
+          description: Installed extension (admin)
+  /api/v1/extensions/{extensionId}/uninstall:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/extensionId"
+      responses:
+        "200":
+          description: Uninstalled extension (admin)
+  /api/v1/extensions/{extensionId}/web:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/extensionId"
+      responses:
+        "200":
+          description: Isolated extension interface page (text/html)
+  /api/v1/hosts/{hostId}/assistant/analyze:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      responses:
+        "200":
+          description: Deterministic assistant analysis for the host
+  /api/v1/hosts/{hostId}/assistant/apply:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/hostId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantApplyInput"
+      responses:
+        "200":
+          description: Applied assistant proposal (operator)
 components:
   parameters:
     hostId:
@@ -565,6 +661,22 @@ components:
         type: string
         minLength: 1
         maxLength: 256
+    clusterId:
+      name: clusterId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    extensionId:
+      name: extensionId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   schemas:
     ApiProblem:
       type: object
@@ -832,6 +944,105 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/HubSearchResult"
+    K8sClusterRegistrationInput:
+      type: object
+      required: [displayName, endpoint]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 128 }
+        endpoint: { type: string, minLength: 1, maxLength: 512 }
+        token: { type: string, maxLength: 65536 }
+        ca: { type: string, maxLength: 65536 }
+        cert: { type: string, maxLength: 65536 }
+        key: { type: string, maxLength: 65536 }
+    K8sCluster:
+      type: object
+      required: [id, displayName, endpoint, status, connectionMode]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        endpoint: { type: string }
+        status: { type: string, enum: [online, offline, unknown] }
+        serverVersion: { type: string }
+        lastSeenAt: { type: string, format: date-time }
+        connectionMode: { type: string, enum: [bearer, mtls, development-http] }
+    K8sNamespace:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        status: { type: string }
+    K8sPod:
+      type: object
+      required: [name, namespace, phase]
+      properties:
+        name: { type: string }
+        namespace: { type: string }
+        phase: { type: string }
+        nodeName: { type: string }
+        restarts: { type: integer, minimum: 0 }
+        ready: { type: boolean }
+        containerImage: { type: string }
+        createdAt: { type: string, format: date-time }
+    ExtensionSummary:
+      type: object
+      required: [id, name, version, publisher, description, status, approved]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        version: { type: string }
+        publisher: { type: string }
+        description: { type: string }
+        category: { type: string }
+        homepageUrl: { type: string }
+        webUrl: { type: string }
+        status: { type: string, enum: [available, installed] }
+        approved: { type: boolean }
+    AssistantInsight:
+      type: object
+      required: [id, severity, title, detail]
+      properties:
+        id: { type: string }
+        severity: { type: string, enum: [info, warning, critical] }
+        title: { type: string }
+        detail: { type: string }
+        resourceKind: { type: string }
+        resourceId: { type: string }
+    AssistantProposal:
+      type: object
+      required:
+        [id, title, summary, resourceKind, resourceId, action, risk, reversible]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        resourceKind:
+          { type: string, enum: [container, image, volume, network] }
+        resourceId: { type: string }
+        action: { type: string }
+        risk: { type: string, enum: [low, medium, high] }
+        reversible: { type: boolean }
+    AssistantAnalysis:
+      type: object
+      required: [hostId, generatedAt, insights, proposals]
+      properties:
+        hostId: { type: string }
+        generatedAt: { type: string, format: date-time }
+        insights:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantInsight"
+        proposals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantProposal"
+    AssistantApplyInput:
+      type: object
+      required: [resourceKind, resourceId, action]
+      properties:
+        resourceKind:
+          { type: string, enum: [container, image, volume, network] }
+        resourceId: { type: string, minLength: 1, maxLength: 256 }
+        action: { type: string, minLength: 1, maxLength: 32 }
   securitySchemes:
     bearerAuth:
       type: http

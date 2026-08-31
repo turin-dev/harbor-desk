@@ -515,3 +515,116 @@ export function useRemoveHost() {
     },
   });
 }
+
+export function useK8sClusters() {
+  return useQuery({
+    queryKey: ["k8s-clusters"],
+    queryFn: gateway.getK8sClusters,
+    retryOnMount: false,
+  });
+}
+
+export function useK8sNamespaces(clusterId: string | undefined) {
+  return useQuery({
+    queryKey: ["k8s-namespaces", clusterId],
+    queryFn: () => gateway.getK8sNamespaces(clusterId!),
+    enabled: Boolean(clusterId),
+    retryOnMount: false,
+  });
+}
+
+export function useK8sPods(clusterId: string | undefined) {
+  return useQuery({
+    queryKey: ["k8s-pods", clusterId],
+    queryFn: () => gateway.getK8sPods(clusterId!),
+    enabled: Boolean(clusterId),
+    retryOnMount: false,
+  });
+}
+
+export function useRegisterK8sCluster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: gateway.registerK8sCluster,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["k8s-clusters"] });
+    },
+  });
+}
+
+export function useRemoveK8sCluster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: gateway.removeK8sCluster,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["k8s-clusters"] });
+    },
+  });
+}
+
+export function useTestK8sCluster() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: gateway.testK8sCluster,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["k8s-clusters"] });
+    },
+  });
+}
+
+export function useExtensions() {
+  return useQuery({
+    queryKey: ["extensions"],
+    queryFn: gateway.getExtensions,
+    retryOnMount: false,
+  });
+}
+
+export function useInstallExtension() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: gateway.installExtension,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["extensions"] });
+    },
+  });
+}
+
+export function useUninstallExtension() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: gateway.uninstallExtension,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["extensions"] });
+    },
+  });
+}
+
+export function useAssistantAnalyze(hostId: string | undefined) {
+  return useQuery({
+    queryKey: ["assistant-analyze", hostId],
+    queryFn: () => gateway.assistantAnalyze(hostId!),
+    enabled: Boolean(hostId),
+    retryOnMount: false,
+  });
+}
+
+export function useAssistantApply(hostId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      resourceKind: "container" | "image" | "volume" | "network";
+      resourceId: string;
+      action: string;
+    }) => gateway.assistantApply(hostId!, input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["assistant-analyze", hostId],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["containers", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["images", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["volumes", hostId] });
+      await queryClient.invalidateQueries({ queryKey: ["networks", hostId] });
+    },
+  });
+}

@@ -11,6 +11,7 @@ import websocket from "@fastify/websocket";
 import { Type } from "@sinclair/typebox";
 import type {
   ApiResponse,
+  AssistantApplyInput,
   ImageBuildInput,
   ContainerCreateInput,
   CurrentUser,
@@ -24,11 +25,15 @@ import type {
   TerminalFrame,
   HubSearchResult,
   VolumeCreateInput,
+  K8sClusterRegistrationInput,
 } from "@harbor/contracts";
 import { loadGatewayConfig, type GatewayConfig } from "@harbor/config";
 import { EventHub } from "./services/events.js";
 import { AuthService } from "./services/auth.js";
 import { HostRegistry } from "./services/host-registry.js";
+import { K8sRegistry } from "./services/k8s-registry.js";
+import { ExtensionsService, type CatalogEntry } from "./services/extensions.js";
+import { AssistantService } from "./services/assistant.js";
 import { OperationStore } from "./services/operations.js";
 import { AuditStore, type AuditInput } from "./services/audit.js";
 import { ImageScanService } from "./services/scan-runner.js";
@@ -225,6 +230,52 @@ const terminalParams = Type.Object({
   sessionId: Type.String({ minLength: 1, maxLength: 128 }),
 });
 
+const k8sClusterParams = Type.Object({
+  clusterId: Type.String({ minLength: 1, maxLength: 128 }),
+});
+const extensionParams = Type.Object({
+  extensionId: Type.String({ minLength: 1, maxLength: 128 }),
+});
+const k8sRegistrationBody = Type.Object({
+  displayName: Type.String({ minLength: 1, maxLength: 128 }),
+  endpoint: Type.String({ minLength: 1, maxLength: 512 }),
+  token: Type.Optional(Type.String({ maxLength: 65_536 })),
+  ca: Type.Optional(Type.String({ maxLength: 65_536 })),
+  cert: Type.Optional(Type.String({ maxLength: 65_536 })),
+  key: Type.Optional(Type.String({ maxLength: 65_536 })),
+});
+const assistantApplyBody = Type.Object({
+  resourceKind: Type.Union([
+    Type.Literal("container"),
+    Type.Literal("image"),
+    Type.Literal("volume"),
+    Type.Literal("network"),
+  ]),
+  resourceId: Type.String({ minLength: 1, maxLength: 256 }),
+  action: Type.String({ minLength: 1, maxLength: 32 }),
+});
+
+const defaultExtensionCatalog: CatalogEntry[] = [
+  {
+    id: "harbor-insights",
+    name: "Harbor Insights",
+    version: "1.0.0",
+    publisher: "Harbor Desk",
+    description:
+      "Live cluster-wide usage trends, image pull throughput, and slow-container highlights.",
+    category: "Analytics",
+  },
+  {
+    id: "harbor-logstream",
+    name: "Harbor Logstream",
+    version: "1.0.0",
+    publisher: "Harbor Desk",
+    description:
+      "Aggregate multi-container log streaming with severity filtering and search.",
+    category: "Operations",
+  },
+];
+
 function sendData<T>(
   reply: FastifyReply,
   data: T,
@@ -313,6 +364,9 @@ export interface HarborApp {
   operations: OperationStore;
   audit: AuditStore;
   scans: ImageScanService;
+  k8s: K8sRegistry;
+  extensions: ExtensionsService;
+  assistant: AssistantService;
 }
 
 export interface HarborAppDependencies {
@@ -348,6 +402,12 @@ export async function buildApp(
   const operations = new OperationStore(events);
   const audit = new AuditStore();
   const scans = new ImageScanService(registry);
+  const k8s = new K8sRegistry({
+    config,
+    secrets: dependencies.secrets,
+  });
+  const extensions = new ExtensionsService(defaultExtensionCatalog);
+  const assistant = new AssistantService(registry);
   const hubTransport =
     dependencies.hubTransport ?? ((url, init) => fetch(url, init));
   const assertHostAccess = (
@@ -1940,10 +2000,265 @@ export async function buildApp(
     },
   );
 
+  app.get("/api/v1/k8s/clusters", async (request, reply) => {
+    await requireUser(auth, request);
+    return sendData(reply, k8s.list());
+  });
+
+  app.post(
+    "/api/v1/k8s/clusters",
+    { schema: { body: k8sRegistrationBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      requireRole(auth, audit, user, "admin", {
+        action: "k8s.cluster.register",
+        requestId: request.id,
+      });
+      let cluster;
+      try {
+        cluster = await k8s.add(request.body as K8sClusterRegistrationInput);
+      } catch (error) {
+        audit.record({
+          actorId: user.id,
+          action: "k8s.cluster.register",
+          result: "failure",
+          requestId: request.id,
+        });
+        throw error;
+      }
+      audit.record({
+        actorId: user.id,
+        action: "k8s.cluster.register",
+        resourceId: cluster.id,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, cluster, 201);
+    },
+  );
+
+  app.delete(
+    "/api/v1/k8s/clusters/:clusterId",
+    { schema: { params: k8sClusterParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { clusterId } = request.params as { clusterId: string };
+      requireRole(auth, audit, user, "admin", {
+        action: "k8s.cluster.remove",
+        resourceId: clusterId,
+        requestId: request.id,
+      });
+      try {
+        await k8s.remove(clusterId);
+        audit.record({
+          actorId: user.id,
+          action: "k8s.cluster.remove",
+          resourceId: clusterId,
+          result: "success",
+          requestId: request.id,
+        });
+        return reply.code(204).send();
+      } catch (error) {
+        audit.record({
+          actorId: user.id,
+          action: "k8s.cluster.remove",
+          resourceId: clusterId,
+          result: "failure",
+          requestId: request.id,
+        });
+        throw error;
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/k8s/clusters/:clusterId/test",
+    { schema: { params: k8sClusterParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { clusterId } = request.params as { clusterId: string };
+      requireRole(auth, audit, user, "admin", {
+        action: "k8s.cluster.test",
+        resourceId: clusterId,
+        requestId: request.id,
+      });
+      const cluster = await k8s.test(clusterId);
+      audit.record({
+        actorId: user.id,
+        action: "k8s.cluster.test",
+        resourceId: clusterId,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, cluster);
+    },
+  );
+
+  app.get(
+    "/api/v1/k8s/clusters/:clusterId/namespaces",
+    { schema: { params: k8sClusterParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { clusterId } = request.params as { clusterId: string };
+      return sendData(reply, await k8s.namespaces(clusterId));
+    },
+  );
+
+  app.get(
+    "/api/v1/k8s/clusters/:clusterId/pods",
+    { schema: { params: k8sClusterParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { clusterId } = request.params as { clusterId: string };
+      return sendData(reply, await k8s.pods(clusterId));
+    },
+  );
+
+  app.get("/api/v1/extensions", async (request, reply) => {
+    await requireUser(auth, request);
+    return sendData(reply, extensions.list());
+  });
+
+  app.get(
+    "/api/v1/extensions/:extensionId",
+    { schema: { params: extensionParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { extensionId } = request.params as { extensionId: string };
+      return sendData(reply, extensions.get(extensionId));
+    },
+  );
+
+  app.post(
+    "/api/v1/extensions/:extensionId/install",
+    { schema: { params: extensionParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { extensionId } = request.params as { extensionId: string };
+      requireRole(auth, audit, user, "admin", {
+        action: "extension.install",
+        resourceId: extensionId,
+        requestId: request.id,
+      });
+      const extension = await extensions.install(extensionId);
+      audit.record({
+        actorId: user.id,
+        action: "extension.install",
+        resourceId: extensionId,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, extension);
+    },
+  );
+
+  app.post(
+    "/api/v1/extensions/:extensionId/uninstall",
+    { schema: { params: extensionParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { extensionId } = request.params as { extensionId: string };
+      requireRole(auth, audit, user, "admin", {
+        action: "extension.uninstall",
+        resourceId: extensionId,
+        requestId: request.id,
+      });
+      const extension = await extensions.uninstall(extensionId);
+      audit.record({
+        actorId: user.id,
+        action: "extension.uninstall",
+        resourceId: extensionId,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, extension);
+    },
+  );
+
+  app.get(
+    "/api/v1/extensions/:extensionId/web",
+    { schema: { params: extensionParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { extensionId } = request.params as { extensionId: string };
+      const extension = extensions.get(extensionId);
+      const title = extension.name + " " + extension.version;
+      const page = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>${title}</title></head>
+<body style="font-family: system-ui, sans-serif; margin: 2rem;">
+<h1>${title}</h1>
+<p>${extension.description}</p>
+<dl>
+<dt>Publisher</dt><dd>${extension.publisher}</dd>
+<dt>Status</dt><dd>${extension.status}</dd>
+<dt>Approved</dt><dd>${extension.approved ? "yes" : "no"}</dd>
+</dl>
+</body>
+</html>`;
+      reply.type("text/html; charset=utf-8");
+      return reply.send(page);
+    },
+  );
+
+  app.get(
+    "/api/v1/hosts/:hostId/assistant/analyze",
+    { schema: { params: hostParams } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId } = request.params as { hostId: string };
+      assertHostAccess(user, hostId, {
+        action: "assistant.analyze",
+        requestId: request.id,
+      });
+      return sendData(reply, await assistant.analyze(hostId));
+    },
+  );
+
+  app.post(
+    "/api/v1/hosts/:hostId/assistant/apply",
+    { schema: { params: hostParams, body: assistantApplyBody } },
+    async (request, reply) => {
+      const user = await requireUser(auth, request);
+      const { hostId } = request.params as { hostId: string };
+      assertHostAccess(user, hostId, {
+        action: "assistant.apply",
+        requestId: request.id,
+      });
+      requireRole(auth, audit, user, "operator", {
+        action: "assistant.apply",
+        hostId,
+        requestId: request.id,
+      });
+      const body = request.body as AssistantApplyInput;
+      const result = await assistant.apply(hostId, body);
+      audit.record({
+        actorId: user.id,
+        hostId,
+        action: "assistant.apply",
+        resourceKind: body.resourceKind,
+        resourceId: body.resourceId,
+        result: "success",
+        requestId: request.id,
+      });
+      return sendData(reply, result);
+    },
+  );
+
   app.addHook("onClose", async () => {
     await registry.close();
   });
 
   await registry.start();
-  return { app, registry, events, operations, audit, scans };
+  return {
+    app,
+    registry,
+    events,
+    operations,
+    audit,
+    scans,
+    k8s,
+    extensions,
+    assistant,
+  };
 }

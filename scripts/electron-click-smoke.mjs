@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Renderer click-through smoke for the Containers Prune dialog.
+// Renderer click-through smoke for the Containers Prune dialog plus the
+// Kubernetes, Extensions, and Assistant screens.
 //
 // Boots the real Electron main process in engine mode (the in-process
 // Gateway wrapper + live Docker Engine), seeds one throwaway stopped
@@ -227,6 +228,52 @@ const R_TOAST_TEXT = `(() => {
   const region = document.querySelector('[role="alert"]');
   return region ? region.textContent || "" : "";
 })()`;
+// --- Navigation smoke for the new screens. The sidebar Drawer is
+// keepMounted and is itself a [role=dialog] on wide layouts, so all
+// content assertions are scoped to the <main> element.
+const R_CONTENT = `(() => {
+  const main = document.querySelector("main") || document.body;
+  return (main.textContent || "").slice(0, 6000);
+})()`;
+const R_CLICK_NAV = (label) =>
+  `(() => {
+    const all = Array.from(document.querySelectorAll("nav *"));
+    const matches = all.filter((el) => (el.textContent || "").trim() === ${JSON.stringify(label)});
+    const visible = matches.filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+    const sorted = (visible.length ? visible : matches).slice().sort((a, b) => a.querySelectorAll("*").length - b.querySelectorAll("*").length);
+    const item = sorted[0];
+    if (!item) return "diag:" + ((document.querySelector("nav") || {}).outerHTML || "none").slice(0, 700);
+    item.click();
+    return "clicked";
+  })()`;
+const R_CLICK_ASSIST_ANALYZE = `(() => {
+  const buttons = Array.from(document.querySelectorAll("main button"));
+  const btn = buttons.find((b) => (b.textContent || "").trim() === "Analyze host" && !b.disabled);
+  if (!btn) return "not-found";
+  btn.click();
+  return "clicked";
+})()`;
+const R_CLICK_FIRST_EXTENSION_OPEN = `(() => {
+  const buttons = Array.from(document.querySelectorAll("button"));
+  const cands = buttons.filter((b) => (b.getAttribute("aria-label") || "").startsWith("Open ") && !b.disabled);
+  const visible = cands.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+  const btn = visible[0] || cands[0];
+  if (!btn) return "not-found";
+  btn.click();
+  return "clicked";
+})()`;
+const R_IFRAME_SRCDOC = `(() => {
+  const iframes = Array.from(document.querySelectorAll("iframe"));
+  const f = iframes.find((i) => (i.getAttribute("srcdoc") || "").length > 0);
+  return f ? (f.getAttribute("srcdoc") || "").slice(0, 800) : "";
+})()`;
+const R_CLOSE_EXTENSION_DIALOG = `(() => {
+  const buttons = Array.from(document.querySelectorAll('[role="dialog"] button'));
+  const btn = buttons.find((b) => (b.textContent || "").trim() === "Close" && !b.disabled);
+  if (!btn) return "not-found";
+  btn.click();
+  return "clicked";
+})()`;
 
 const userDataDir = await mkdtemp(join(tmpdir(), "harbor-click-"));
 let electronProc;
@@ -414,6 +461,95 @@ try {
     (row) => row.name === containerName,
   );
   check("Engine confirms the container was pruned", gone, containerName);
+
+  // --- New screen navigation smoke (Kubernetes / Extensions / Assistant) ---
+  const navCheck = async (label, expected) => {
+    let clicked = "not-found";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      clicked = await evaluate(cdp, R_CLICK_NAV(label));
+      if (clicked === "clicked") break;
+      await sleep(500);
+    }
+    check("clicked sidebar " + label, clicked === "clicked", clicked);
+    try {
+      await waitUntil(
+        cdp,
+        async () => {
+          const t = (await evaluate(cdp, R_CONTENT)) || "";
+          return t.includes(expected);
+        },
+        "content shows " + expected,
+        20000,
+      );
+      check("showed " + label + " content", true);
+    } catch (error) {
+      const content = (await evaluate(cdp, R_CONTENT).catch(() => "?")) || "?";
+      throw new Error(
+        (error instanceof Error ? error.message : String(error)) +
+          " | content=" +
+          JSON.stringify(content.slice(0, 600)),
+      );
+    }
+  };
+
+  await navCheck("Kubernetes", "Kubernetes clusters");
+  await navCheck("Extensions", "admin-approved extension catalog");
+  await navCheck("Assistant", "Analyze host");
+
+  let analyzed = "not-found";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    analyzed = await evaluate(cdp, R_CLICK_ASSIST_ANALYZE);
+    if (analyzed === "clicked") break;
+    await sleep(500);
+  }
+  check("clicked Analyze host", analyzed === "clicked", analyzed);
+  await waitUntil(
+    cdp,
+    async () => {
+      const t = (await evaluate(cdp, R_CONTENT)) || "";
+      return t.includes("Insights (");
+    },
+    "assistant insights",
+    30000,
+  );
+  const insightsSnippet = (
+    (await evaluate(cdp, R_CONTENT).catch(() => "")) || ""
+  )
+    .split("Insights (")
+    .pop()
+    .slice(0, 30);
+  check("assistant rendered insights and proposals", true, insightsSnippet);
+  let extNav = "not-found";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    extNav = await evaluate(cdp, R_CLICK_NAV("Extensions"));
+    if (extNav === "clicked") break;
+    await sleep(500);
+  }
+  check("returned to the Extensions screen", extNav === "clicked", extNav);
+
+  let extOpened = "not-found";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    extOpened = await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
+    if (extOpened === "clicked") break;
+    await sleep(500);
+  }
+  check(
+    "clicked the extension Open button",
+    extOpened === "clicked",
+    extOpened,
+  );
+  await waitUntil(
+    cdp,
+    async () =>
+      (await evaluate(cdp, R_IFRAME_SRCDOC)).includes(
+        "Live cluster-wide usage trends",
+      ),
+    "extension web iframe",
+    30000,
+  );
+  check("extension web page rendered in the in-app dialog", true);
+  const closed = await evaluate(cdp, R_CLOSE_EXTENSION_DIALOG);
+  check("closed the extension dialog", closed === "clicked", closed);
 } catch (error) {
   check(
     "harness error",

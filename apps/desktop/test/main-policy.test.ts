@@ -36,6 +36,7 @@ test("buildMainFrameCsp embeds every connect origin once", () => {
     ),
   );
   assert.ok(csp.includes("object-src 'none'"));
+  assert.ok(csp.includes("frame-src 'self'"));
   assert.ok(csp.endsWith("font-src 'self' data:;"));
   assert.ok(!csp.includes("  "));
 });

@@ -18,7 +18,9 @@ import { HostsScreen } from "./screens/HostsScreen.js";
 import { HubScreen } from "./screens/HubScreen.js";
 import { ResourceScreen } from "./screens/ResourceScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
-import { SurfaceScreen } from "./screens/SurfaceScreen.js";
+import { KubernetesScreen } from "./screens/KubernetesScreen.js";
+import { ExtensionsScreen } from "./screens/ExtensionsScreen.js";
+import { AssistantScreen } from "./screens/AssistantScreen.js";
 import { SecurityScreen } from "./screens/SecurityScreen.js";
 import { TroubleshootScreen } from "./screens/TroubleshootScreen.js";
 import { AboutScreen } from "./screens/AboutScreen.js";
@@ -141,40 +143,11 @@ function AuthGate() {
         <Route path="/volumes" element={<ResourceScreen kind="volumes" />} />
         <Route path="/networks" element={<ResourceScreen kind="networks" />} />
         <Route path="/builds" element={<BuildsScreen />} />
-        <Route
-          path="/kubernetes"
-          element={
-            <SurfaceScreen
-              title="Kubernetes"
-              eyebrow="Cluster resources"
-              capability="kubernetes"
-              description="Register clusters on the server and manage their resources without a local kubeconfig."
-            />
-          }
-        />
-        <Route
-          path="/extensions"
-          element={
-            <SurfaceScreen
-              title="Extensions"
-              eyebrow="OCI catalog"
-              capability="extensions"
-              description="Install approved remote extensions and open their isolated web interfaces."
-            />
-          }
-        />
+        <Route path="/kubernetes" element={<KubernetesScreen />} />
+        <Route path="/extensions" element={<ExtensionsScreen />} />
         <Route path="/hub" element={<HubScreen />} />
         <Route path="/security" element={<SecurityScreen />} />
-        <Route
-          path="/assistant"
-          element={
-            <SurfaceScreen
-              title="Assistant"
-              eyebrow="Provider adapter"
-              description="Use a configured LLM provider to inspect and propose safe container operations."
-            />
-          }
-        />
+        <Route path="/assistant" element={<AssistantScreen />} />
         <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/troubleshoot" element={<TroubleshootScreen />} />
         <Route path="/about" element={<AboutScreen />} />
