@@ -263,8 +263,12 @@ const R_CLICK_FIRST_EXTENSION_OPEN = `(() => {
   return "clicked";
 })()`;
 const R_LAST_DIALOG_TEXT = `(() => {
-  const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-  const d = dialogs[dialogs.length - 1];
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
+  const visible = dialogs.filter((d) => {
+    const r = d.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  const d = visible[visible.length - 1] || dialogs[dialogs.length - 1];
   return d ? (d.textContent || "").slice(0, 300) : "";
 })()`;
 const R_IFRAME_SRCDOC = `(() => {
@@ -555,13 +559,10 @@ try {
         if (srcdoc.includes("Live cluster-wide usage trends")) {
           return true;
         }
-        const dialogText = (await evaluate(cdp, R_LAST_DIALOG_TEXT)) || "";
-        if (
-          dialogText.includes("Loading the extension page") ||
-          dialogText.includes("could not be loaded")
-        ) {
-          await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
-        }
+        // The content never appeared: re-open the extension (this re-fetches the
+        // web page) and try again. Harmless when the dialog is already open.
+        await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
+        await sleep(1000);
         return false;
       },
       "extension web iframe",
