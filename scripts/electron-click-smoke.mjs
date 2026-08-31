@@ -550,10 +550,20 @@ try {
   try {
     await waitUntil(
       cdp,
-      async () =>
-        (await evaluate(cdp, R_IFRAME_SRCDOC)).includes(
-          "Live cluster-wide usage trends",
-        ),
+      async () => {
+        const srcdoc = await evaluate(cdp, R_IFRAME_SRCDOC);
+        if (srcdoc.includes("Live cluster-wide usage trends")) {
+          return true;
+        }
+        const dialogText = (await evaluate(cdp, R_LAST_DIALOG_TEXT)) || "";
+        if (
+          dialogText.includes("Loading the extension page") ||
+          dialogText.includes("could not be loaded")
+        ) {
+          await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
+        }
+        return false;
+      },
       "extension web iframe",
       30000,
     );
