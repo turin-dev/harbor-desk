@@ -254,13 +254,110 @@ const R_CLICK_ASSIST_ANALYZE = `(() => {
   return "clicked";
 })()`;
 const R_CLICK_FIRST_EXTENSION_OPEN = `(() => {
-  const buttons = Array.from(document.querySelectorAll("button"));
-  const cands = buttons.filter((b) => (b.getAttribute("aria-label") || "").startsWith("Open ") && !b.disabled);
-  const visible = cands.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
-  const btn = visible[0] || cands[0];
+  // Only the extension catalog rows carry Open buttons. The compact
+  // header also renders an "Open navigation" IconButton and the
+  // catalog table re-mounts on navigation, so: drop the hamburger,
+  // prefer buttons that sit inside a table row, and tolerate a
+  // transient moment where the table is not (yet) present.
+  const all = Array.from(document.querySelectorAll("button")).filter((b) => {
+    const label = b.getAttribute("aria-label") || "";
+    return label.startsWith("Open ") && label !== "Open navigation" && !b.disabled;
+  });
+  const inRow = all.filter((b) => b.closest("tr"));
+  const pool = inRow.length ? inRow : all;
+  const visible = pool.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+  const btn = visible[0] || pool[0];
   if (!btn) return "not-found";
   btn.click();
   return "clicked";
+})()`;
+const R_OPEN_EXTENSION_DIALOG = `(() => {
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
+  const visible = dialogs.filter((d) => {
+    const r = d.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  const d = visible
+    .filter((x) => (x.textContent || "").includes("Harbor Insights"))
+    .pop();
+  return d ? (d.textContent || "").slice(0, 300) : "";
+})()`;
+const R_EXT_WEB_STATE = `(() => {
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
+  const visible = dialogs.filter((d) => {
+    const r = d.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  const d = visible
+    .filter((x) => (x.textContent || "").includes("Harbor Insights"))
+    .pop();
+  if (!d) return { state: "no-dialog" };
+  const iframe = Array.from(d.querySelectorAll("iframe")).find(
+    (f) => (f.getAttribute("srcdoc") || "").length > 0,
+  );
+  if (iframe) return { state: "iframe", html: (iframe.getAttribute("srcdoc") || "").slice(0, 800) };
+  const error = d.querySelector('[role="alert"]');
+  if (error) return { state: "error", error: (error.textContent || "").slice(0, 200) };
+  return { state: "loading" };
+})()`;
+const R_EXT_CLOSE_DIALOG = `(() => {
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
+  const visible = dialogs.filter((d) => {
+    const r = d.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  const d = visible
+    .filter((x) => (x.textContent || "").includes("Harbor Insights"))
+    .pop();
+  if (!d) return "no-dialog";
+  const btn = Array.from(d.querySelectorAll("button")).find(
+    (b) => (b.textContent || "").trim() === "Close" && !b.disabled,
+  );
+  if (!btn) return "not-found";
+  btn.click();
+  return "clicked";
+})()`;
+const R_EXT_DIAG = `(() => {
+  const main = document.querySelector("main") || document.body;
+  const rows = Array.from(main.querySelectorAll("table tbody tr")).map(
+    (tr) => (tr.textContent || "").slice(0, 80),
+  );
+  const rowDetail = Array.from(main.querySelectorAll("table tbody tr")).map(
+    (tr) => ({
+      tds: tr.querySelectorAll("td").length,
+      buttons: Array.from(tr.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") || b.textContent.trim()),
+      tags: Array.from(tr.children).map((c) => c.tagName),
+    }),
+  );
+  const tableCount = main.querySelectorAll("table").length;
+  const tdCount = main.querySelectorAll("td").length;
+  const mainTag = main ? main.tagName : "none";
+  const openButtons = Array.from(main.querySelectorAll("button"))
+    .filter((b) => (b.getAttribute("aria-label") || "").startsWith("Open "))
+    .map((b) => ({
+      label: b.getAttribute("aria-label"),
+      disabled: b.disabled ? 1 : 0,
+      inTr: b.closest("tr") ? 1 : 0,
+    }));
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']")).map(
+    (d) => {
+      const rect = d.getBoundingClientRect();
+      return {
+        text: (d.textContent || "").slice(0, 120),
+        visible: rect.width > 0 && rect.height > 0 ? 1 : 0,
+      };
+    },
+  );
+  return {
+    rows: rowDetail,
+    tableCount,
+    tdCount,
+    mainTag,
+    openButtons,
+    dialogs,
+    window: window.innerWidth + "x" + window.innerHeight,
+    body: (document.body.textContent || "").slice(0, 300),
+  };
 })()`;
 const R_LAST_DIALOG_TEXT = `(() => {
   const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
@@ -271,19 +368,6 @@ const R_LAST_DIALOG_TEXT = `(() => {
   const d = visible[visible.length - 1] || dialogs[dialogs.length - 1];
   return d ? (d.textContent || "").slice(0, 300) : "";
 })()`;
-const R_IFRAME_SRCDOC = `(() => {
-  const iframes = Array.from(document.querySelectorAll("iframe"));
-  const f = iframes.find((i) => (i.getAttribute("srcdoc") || "").length > 0);
-  return f ? (f.getAttribute("srcdoc") || "").slice(0, 800) : "";
-})()`;
-const R_CLOSE_EXTENSION_DIALOG = `(() => {
-  const buttons = Array.from(document.querySelectorAll('[role="dialog"] button'));
-  const btn = buttons.find((b) => (b.textContent || "").trim() === "Close" && !b.disabled);
-  if (!btn) return "not-found";
-  btn.click();
-  return "clicked";
-})()`;
-
 const userDataDir = await mkdtemp(join(tmpdir(), "harbor-click-"));
 let electronProc;
 let staticServer;
@@ -537,52 +621,81 @@ try {
   check("returned to the Extensions screen", extNav === "clicked", extNav);
 
   let extOpened = "not-found";
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    extOpened = await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
-    if (extOpened === "clicked") {
-      const dialogText = await evaluate(cdp, R_LAST_DIALOG_TEXT);
-      if (dialogText.includes("Harbor Insights")) break;
+  let extensionDialogSeen = false;
+  // The catalog re-fetches when the screen re-mounts after navigation,
+  // so the Open buttons can be absent for a moment: keep retrying
+  // instead of bailing on the first "not-found".
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const clicked = await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
+    if (clicked === "clicked") {
+      extOpened = "clicked";
+      const dialogText = await evaluate(cdp, R_OPEN_EXTENSION_DIALOG);
+      if (dialogText.includes("Harbor Insights")) {
+        extensionDialogSeen = true;
+        break;
+      }
     }
     await sleep(1000);
   }
   check(
-    "clicked the extension Open button",
-    extOpened === "clicked",
+    "clicked the extension Open button and the dialog opened",
+    extOpened === "clicked" && extensionDialogSeen,
     extOpened,
   );
+  if (!extensionDialogSeen) {
+    const dialogText =
+      (await evaluate(cdp, R_LAST_DIALOG_TEXT).catch(() => "")) || "";
+    const diag = (await evaluate(cdp, R_EXT_DIAG).catch(() => "")) || "";
+    throw new Error(
+      "the extension dialog never opened | dialog=" +
+        JSON.stringify(dialogText) +
+        " | diag=" +
+        JSON.stringify(diag),
+    );
+  }
   let extIframeOk = false;
   try {
     await waitUntil(
       cdp,
       async () => {
-        const srcdoc = await evaluate(cdp, R_IFRAME_SRCDOC);
-        if (srcdoc.includes("Live cluster-wide usage trends")) {
+        const state = await evaluate(cdp, R_EXT_WEB_STATE);
+        if (
+          state.html &&
+          state.html.includes("Live cluster-wide usage trends")
+        ) {
           return true;
         }
-        // The content never appeared: re-open the extension (this re-fetches the
-        // web page) and try again. Harmless when the dialog is already open.
+        if (state.error) {
+          throw new Error(
+            "the extension web page failed to load: " +
+              state.error +
+              " | webState=" +
+              JSON.stringify(state),
+          );
+        }
+        // Still loading: re-open the extension (this re-fetches the web
+        // page) and try again. Harmless when the dialog is already open.
         await evaluate(cdp, R_CLICK_FIRST_EXTENSION_OPEN);
-        await sleep(1000);
         return false;
       },
       "extension web iframe",
-      30000,
+      45000,
     );
     extIframeOk = true;
   } catch (error) {
     const dialogText =
-      (await evaluate(cdp, R_LAST_DIALOG_TEXT).catch(() => "")) || "";
-    const srcdoc = (await evaluate(cdp, R_IFRAME_SRCDOC).catch(() => "")) || "";
+      (await evaluate(cdp, R_OPEN_EXTENSION_DIALOG).catch(() => "")) || "";
+    const diag = (await evaluate(cdp, R_EXT_DIAG).catch(() => "")) || "";
     throw new Error(
       (error instanceof Error ? error.message : String(error)) +
         " | dialog=" +
         JSON.stringify(dialogText) +
-        " | srcdoc=" +
-        JSON.stringify(srcdoc.slice(0, 200)),
+        " | diag=" +
+        JSON.stringify(diag),
     );
   }
   check("extension web page rendered in the in-app dialog", extIframeOk);
-  const closed = await evaluate(cdp, R_CLOSE_EXTENSION_DIALOG);
+  const closed = await evaluate(cdp, R_EXT_CLOSE_DIALOG);
   check("closed the extension dialog", closed === "clicked", closed);
 } catch (error) {
   check(
