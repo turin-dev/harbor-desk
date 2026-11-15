@@ -111,11 +111,22 @@ acceptance checks, secret rotation, monitoring, backups, signed packages, and
 an independent security review. The absence of a public advisory does not make
 an unreviewed deployment safe.
 
-## Known unpatched advisories
+## Known remaining advisories
 
 Dependabot, secret scanning with push protection, and CodeQL default setup are
-enabled on this repository. One advisory currently has no upstream fix:
+enabled on this repository. Dependabot security updates only bump direct
+dependencies, so transitive packages whose parent is already current stay on
+the vulnerable lockfile pin. `pnpm-workspace.yaml` overrides force the patched
+release on the same major line for `joi` (18.3.2), `undici` (6.29.1), and
+`fast-uri` (3.1.9 and 4.2.3), and for `axios`, `follow-redirects`, `js-yaml`,
+`shell-quote`, `brace-expansion`, and `source-map-js`.
 
+These advisories are still present after those overrides:
+
+- **electron 39.8.10 (high).** Patched releases start at 41.10.4 and 42.11.16.
+  That is a major desktop-shell upgrade and is reviewed on its own. The
+  package is a development dependency used to build and launch the client; the
+  gateway and renderer do not import it.
 - **extract-zip 2.0.1 — unvalidated symlink path traversal (high).** It reaches
   the tree only as a transitive dependency of the `electron` development
   dependency, which uses it to unpack the prebuilt Electron binary at install
@@ -125,3 +136,9 @@ enabled on this repository. One advisory currently has no upstream fix:
   build-host supply-chain risk: build from a trusted registry mirror and do not
   run installs on untrusted archives. This entry will be removed once an
   upstream fix or an Electron release without the dependency is available.
+- **minimatch 9.0.9 and 10.2.6 (moderate).** The published fix is minimatch 11.
+  Both copies are transitive through `electron-builder`. They are not overridden
+  onto 11 because that major changes the glob implementation the packager uses.
+- **fastify 5.12.1 and vite 7.3.6.** Later 5.12 and 7.3 releases fix these.
+  Those direct minor and patch bumps are kept out of the transitive-override
+  change so a gateway or renderer regression stays in its own review.
