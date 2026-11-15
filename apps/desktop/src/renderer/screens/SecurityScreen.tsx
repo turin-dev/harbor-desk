@@ -151,15 +151,17 @@ export function SecurityScreen() {
               placeholder="Filter repository, tag, or digest"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search />
-                  </InputAdornment>
-                ),
-              }}
               sx={{ width: 260 }}
               aria-label="Filter image security facts"
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search />
+                    </InputAdornment>
+                  ),
+                },
+              }}
             />
             {hosts.length > 1 && (
               <Select
@@ -186,7 +188,7 @@ export function SecurityScreen() {
       {trust && (
         <Paper sx={{ p: 2, mb: 2 }} aria-label="Host connection trust">
           <Stack spacing={1}>
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <ShieldOutlined sx={{ color: "text.primary" }} />
               <Typography variant="body1" sx={{ fontWeight: 650 }}>
                 {"Connection trust: " +
@@ -394,7 +396,10 @@ function ScanSection({
 
   return (
     <Stack spacing={1.5} sx={{ mt: 1 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack
+        direction="row"
+        sx={{ alignItems: "center", justifyContent: "space-between" }}
+      >
         <Typography variant="body2" sx={{ fontWeight: 650 }}>
           Vulnerability scan
         </Typography>
@@ -456,7 +461,7 @@ function ScanSection({
               key={vulnerability.vulnerabilityId + vulnerability.package}
               direction="row"
               spacing={1}
-              alignItems="baseline"
+              sx={{ alignItems: "baseline" }}
             >
               <Chip
                 label={vulnerability.severity.toLowerCase()}
@@ -536,8 +541,7 @@ function SecurityDetail({ facts }: { facts: ImageSecurityFacts }) {
           <Stack
             key={row.label}
             direction="row"
-            justifyContent="space-between"
-            gap={2}
+            sx={{ justifyContent: "space-between", gap: 2 }}
           >
             <Typography variant="body2" color="text.secondary" component="span">
               {row.label}

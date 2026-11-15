@@ -37,7 +37,7 @@ import {
   Close,
   CloudOff,
   CloudQueue,
-  DeleteOutline,
+  DeleteOutlined,
   ExpandLess,
   ExpandMore,
   MoreHoriz,
@@ -308,12 +308,14 @@ export function ContainersScreen() {
           placeholder="Filter by name, image, or status"
           aria-label="Filter containers"
           sx={{ width: 340 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search fontSize="small" />
-              </InputAdornment>
-            ),
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            },
           }}
         />
       </Stack>
@@ -883,9 +885,8 @@ function DisconnectedContainersView({ onConnect }: { onConnect: () => void }) {
     <Box sx={{ px: 4, pt: 3, pb: 3, minWidth: 860 }}>
       <Stack
         direction="row"
-        alignItems="center"
         spacing={1.5}
-        sx={{ minHeight: 24 }}
+        sx={{ alignItems: "center", minHeight: 24 }}
       >
         <Typography sx={{ fontSize: 16, fontWeight: 500, lineHeight: "24px" }}>
           Containers
@@ -911,7 +912,7 @@ function DisconnectedContainersView({ onConnect }: { onConnect: () => void }) {
         <ContainerMetric label="Container memory usage" />
       </Box>
 
-      <Stack direction="row" alignItems="center" spacing={3} sx={{ mt: 3.5 }}>
+      <Stack direction="row" spacing={3} sx={{ alignItems: "center", mt: 3.5 }}>
         <TextField
           disabled
           placeholder="Search"
@@ -927,18 +928,22 @@ function DisconnectedContainersView({ onConnect }: { onConnect: () => void }) {
               WebkitTextFillColor: "text.secondary",
             },
           }}
-          InputProps={{
-            startAdornment: (
-              <Search sx={{ mr: 1, color: "text.secondary", fontSize: 21 }} />
-            ),
+          slotProps={{
+            input: {
+              startAdornment: (
+                <Search sx={{ mr: 1, color: "text.secondary", fontSize: 21 }} />
+              ),
+            },
           }}
         />
-        <Stack direction="row" spacing={0.5} alignItems="center">
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
           <Switch
             checked={false}
             disabled
             size="small"
-            inputProps={{ "aria-label": "Only show running containers" }}
+            slotProps={{
+              input: { "aria-label": "Only show running containers" },
+            }}
           />
           <Typography sx={{ fontSize: 14, fontWeight: 500 }}>
             Only show running containers
@@ -989,10 +994,13 @@ function DisconnectedContainersView({ onConnect }: { onConnect: () => void }) {
               <TableCell colSpan={columns.length} sx={{ px: 0, py: 0 }}>
                 <Stack
                   direction="row"
-                  alignItems="center"
-                  justifyContent="center"
                   spacing={1.5}
-                  sx={{ minHeight: 40, px: 2 }}
+                  sx={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: 40,
+                    px: 2,
+                  }}
                 >
                   <CloudOff color="disabled" fontSize="small" />
                   <Typography color="text.secondary" sx={{ fontSize: 14 }}>
@@ -1183,9 +1191,9 @@ function ContainerRow(props: {
       <TableCell align="right">
         <Stack
           direction="row"
-          justifyContent="flex-end"
           spacing={0.3}
           onClick={(event) => event.stopPropagation()}
+          sx={{ justifyContent: "flex-end" }}
         >
           <Tooltip title={running ? "Stop" : "Start"}>
             <span>
@@ -1222,7 +1230,7 @@ function ContainerRow(props: {
               onClick={props.onDelete}
               aria-label={`Delete ${container.name}`}
             >
-              <DeleteOutline fontSize="small" />
+              <DeleteOutlined fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="More actions">
@@ -1334,15 +1342,14 @@ function ContainerDetailDrawer(props: {
       anchor="right"
       open={Boolean(container)}
       onClose={props.onClose}
-      PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, p: 2.5 } }}
+      slotProps={{ paper: { sx: { width: { xs: "100%", sm: 480 }, p: 2.5 } } }}
     >
       {container && (
         <Stack spacing={1.6} sx={{ height: "100%" }}>
           <Stack
             direction="row"
-            justifyContent="space-between"
             spacing={2}
-            alignItems="flex-start"
+            sx={{ alignItems: "flex-start", justifyContent: "space-between" }}
           >
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="h6" noWrap>

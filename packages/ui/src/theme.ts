@@ -189,12 +189,17 @@ export function createHarborTheme(mode: PaletteMode) {
             borderRadius: 4,
             letterSpacing: 0,
           },
-          containedPrimary: {
-            color: "#ffffff",
-            backgroundColor: colors.primary,
-            "&:hover": { backgroundColor: colors.primaryStrong },
-          },
         },
+        variants: [
+          {
+            props: { variant: "contained", color: "primary" },
+            style: {
+              color: "#ffffff",
+              backgroundColor: colors.primary,
+              "&:hover": { backgroundColor: colors.primaryStrong },
+            },
+          },
+        ],
       },
       MuiIconButton: {
         styleOverrides: { root: { borderRadius: 4 } },

@@ -20,7 +20,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Add, DeleteOutline, Refresh } from "@mui/icons-material";
+import { Add, DeleteOutlined, Refresh } from "@mui/icons-material";
 import type {
   K8sCluster,
   K8sClusterRegistrationInput,
@@ -198,7 +198,7 @@ export function KubernetesScreen() {
                       <Stack
                         direction="row"
                         spacing={0.5}
-                        justifyContent="flex-end"
+                        sx={{ justifyContent: "flex-end" }}
                       >
                         <Button
                           size="small"
@@ -225,7 +225,7 @@ export function KubernetesScreen() {
                         <Button
                           size="small"
                           color="error"
-                          startIcon={<DeleteOutline fontSize="small" />}
+                          startIcon={<DeleteOutlined fontSize="small" />}
                           onClick={(event) => {
                             event.stopPropagation();
                             setRemoveTarget(cluster);

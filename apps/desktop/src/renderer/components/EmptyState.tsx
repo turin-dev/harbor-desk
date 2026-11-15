@@ -21,7 +21,7 @@ export function EmptyState(props: {
         bgcolor: "transparent",
       }}
     >
-      <Stack alignItems="center" spacing={1.2}>
+      <Stack spacing={1.2} sx={{ alignItems: "center" }}>
         <Box
           sx={{
             width: 48,

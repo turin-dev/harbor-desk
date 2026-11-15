@@ -7,7 +7,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  CheckCircleOutline,
+  CheckCircleOutlined,
   CloudQueue,
   Construction,
   DeveloperBoard,
@@ -112,7 +112,7 @@ export function SettingsScreen() {
       <Stack
         direction={{ xs: "column", md: "row" }}
         spacing={2}
-        alignItems="flex-start"
+        sx={{ alignItems: "flex-start" }}
       >
         <Paper sx={{ p: 0.8, width: { xs: "100%", md: 215 }, flexShrink: 0 }}>
           <Stack spacing={0.25}>
@@ -207,7 +207,7 @@ function Heading({
   description: string;
 }) {
   return (
-    <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 2.2 }}>
+    <Stack direction="row" spacing={1.2} sx={{ alignItems: "center", mb: 2.2 }}>
       <Box
         sx={{
           width: 34,
@@ -292,7 +292,9 @@ function GeneralSettings() {
                   .then((actual) => setLaunchAtLogin(actual))
                   .catch(() => setLaunchAtLogin(!enabled));
             }}
-            inputProps={{ "aria-label": "Start Harbor Desk when I sign in" }}
+            slotProps={{
+              input: { "aria-label": "Start Harbor Desk when I sign in" },
+            }}
           />
         </SettingRow>
         <Divider />
@@ -303,7 +305,9 @@ function GeneralSettings() {
           <Switch
             checked={automaticUpdateChecks}
             onChange={(event) => setAutomaticUpdateChecks(event.target.checked)}
-            inputProps={{ "aria-label": "Automatically check for updates" }}
+            slotProps={{
+              input: { "aria-label": "Automatically check for updates" },
+            }}
           />
         </SettingRow>
         <Divider />
@@ -314,7 +318,7 @@ function GeneralSettings() {
           <Switch
             checked={includePreviewUpdates}
             onChange={(event) => setIncludePreviewUpdates(event.target.checked)}
-            inputProps={{ "aria-label": "Include preview releases" }}
+            slotProps={{ input: { "aria-label": "Include preview releases" } }}
           />
         </SettingRow>
         <Divider />
@@ -441,7 +445,7 @@ function ConnectionSettings() {
           value={endpoint}
           onChange={(event) => setEndpoint(event.target.value)}
           helperText="Gateway HTTP(S) URLs are used directly. Engine targets use a Local Gateway wrapper."
-          inputProps={{ spellCheck: false }}
+          slotProps={{ htmlInput: { spellCheck: false } }}
         />
         <TextField
           fullWidth
@@ -475,7 +479,9 @@ function ConnectionSettings() {
               label="CA certificate"
               value={ca}
               onChange={(event) => setCa(event.target.value)}
-              inputProps={{ spellCheck: false, autoComplete: "off" }}
+              slotProps={{
+                htmlInput: { spellCheck: false, autoComplete: "off" },
+              }}
             />
             <TextField
               fullWidth
@@ -484,7 +490,9 @@ function ConnectionSettings() {
               label="Client certificate"
               value={cert}
               onChange={(event) => setCert(event.target.value)}
-              inputProps={{ spellCheck: false, autoComplete: "off" }}
+              slotProps={{
+                htmlInput: { spellCheck: false, autoComplete: "off" },
+              }}
             />
             <TextField
               fullWidth
@@ -494,7 +502,9 @@ function ConnectionSettings() {
               label="Client private key"
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              inputProps={{ spellCheck: false, autoComplete: "new-password" }}
+              slotProps={{
+                htmlInput: { spellCheck: false, autoComplete: "new-password" },
+              }}
             />
           </Stack>
         </Collapse>
@@ -546,7 +556,7 @@ function ConnectionSettings() {
 
 function ConnectionValue({ label, value }: { label: string; value: string }) {
   return (
-    <Stack direction="row" justifyContent="space-between" spacing={2}>
+    <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between" }}>
       <Typography color="text.secondary" sx={{ fontSize: 11 }}>
         {label}
       </Typography>
@@ -589,7 +599,11 @@ function RemoteHostSettings({
         {hosts.length ? (
           hosts.map((host) => (
             <Paper key={host.id} variant="outlined" sx={{ p: 1.4 }}>
-              <Stack direction="row" spacing={1.2} alignItems="center">
+              <Stack
+                direction="row"
+                spacing={1.2}
+                sx={{ alignItems: "center" }}
+              >
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 650 }}>
                     {host.displayName}
@@ -638,7 +652,7 @@ function EngineSettings({ host }: { host?: Host }) {
       />
       {host ? (
         <Stack spacing={1.3}>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <Typography sx={{ fontWeight: 650 }}>{host.displayName}</Typography>
             <StatusChip status={host.status} />
           </Stack>
@@ -665,12 +679,12 @@ function EngineSettings({ host }: { host?: Host }) {
           <Typography sx={{ fontWeight: 650, fontSize: 12 }}>
             Capabilities
           </Typography>
-          <Stack direction="row" useFlexGap flexWrap="wrap" gap={0.7}>
+          <Stack direction="row" useFlexGap sx={{ flexWrap: "wrap", gap: 0.7 }}>
             {Object.entries(host.capabilities).map(([key, enabled]) => (
               <Chip
                 key={key}
                 size="small"
-                icon={enabled ? <CheckCircleOutline /> : undefined}
+                icon={enabled ? <CheckCircleOutlined /> : undefined}
                 label={`${key}: ${enabled ? "available" : "unsupported"}`}
                 color={enabled ? "success" : "default"}
                 variant={enabled ? "filled" : "outlined"}
@@ -710,7 +724,9 @@ function NotificationSettings() {
           <Switch
             checked={enabled}
             onChange={(event) => setEnabled(event.target.checked)}
-            inputProps={{ "aria-label": "Show connection notifications" }}
+            slotProps={{
+              input: { "aria-label": "Show connection notifications" },
+            }}
           />
         </SettingRow>
         <Divider />
@@ -770,9 +786,8 @@ function SettingRow({
   return (
     <Stack
       direction="row"
-      justifyContent="space-between"
       spacing={2}
-      alignItems="center"
+      sx={{ alignItems: "center", justifyContent: "space-between" }}
     >
       <Box sx={{ minWidth: 0 }}>
         <Typography sx={{ fontWeight: 620 }}>{title}</Typography>

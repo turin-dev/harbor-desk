@@ -107,7 +107,7 @@ export function ConnectionTargetDialog({
             value={endpoint}
             onChange={(event) => setEndpoint(event.target.value)}
             helperText="Gateway URLs are used directly. Engine targets start a Local Gateway wrapper."
-            inputProps={{ spellCheck: false }}
+            slotProps={{ htmlInput: { spellCheck: false } }}
           />
           <TextField
             fullWidth
@@ -140,7 +140,9 @@ export function ConnectionTargetDialog({
                 minRows={2}
                 value={ca}
                 onChange={(event) => setCa(event.target.value)}
-                inputProps={{ spellCheck: false, autoComplete: "off" }}
+                slotProps={{
+                  htmlInput: { spellCheck: false, autoComplete: "off" },
+                }}
               />
               <TextField
                 label="Client certificate"
@@ -148,7 +150,9 @@ export function ConnectionTargetDialog({
                 minRows={2}
                 value={cert}
                 onChange={(event) => setCert(event.target.value)}
-                inputProps={{ spellCheck: false, autoComplete: "off" }}
+                slotProps={{
+                  htmlInput: { spellCheck: false, autoComplete: "off" },
+                }}
               />
               <TextField
                 label="Client private key"
@@ -157,7 +161,12 @@ export function ConnectionTargetDialog({
                 type="password"
                 value={key}
                 onChange={(event) => setKey(event.target.value)}
-                inputProps={{ spellCheck: false, autoComplete: "new-password" }}
+                slotProps={{
+                  htmlInput: {
+                    spellCheck: false,
+                    autoComplete: "new-password",
+                  },
+                }}
               />
             </Stack>
           </Collapse>

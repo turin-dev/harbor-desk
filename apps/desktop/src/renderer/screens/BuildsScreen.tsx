@@ -172,7 +172,7 @@ export function BuildsScreen() {
         title="Builds"
         description="Upload a local Dockerfile context and build the image on the remote Engine."
         actions={
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
             {hosts.length > 1 && (
               <Select
                 size="small"
@@ -221,7 +221,7 @@ export function BuildsScreen() {
       {active && attempt && (
         <Paper sx={{ p: 2, mb: 2 }} aria-label="Active build progress">
           <Stack spacing={1}>
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <Build sx={{ color: "text.primary" }} />
               <Typography variant="body1" sx={{ fontWeight: 650 }}>
                 Building {attempt.tag}
@@ -302,8 +302,8 @@ export function BuildsScreen() {
                     : ""
                 }
                 onChange={() => undefined}
-                InputProps={{ readOnly: true }}
                 fullWidth
+                slotProps={{ input: { readOnly: true } }}
               />
               <Button
                 variant="outlined"

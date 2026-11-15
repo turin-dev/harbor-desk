@@ -15,7 +15,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Add, DeleteOutline, Dns, Refresh } from "@mui/icons-material";
+import { Add, DeleteOutlined, Dns, Refresh } from "@mui/icons-material";
 import type { Host, HostRegistrationInput } from "@harbor/contracts";
 import { ConnectionTargetDialog } from "../components/ConnectionTargetDialog.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -131,7 +131,7 @@ export function HostsScreen() {
           <Stack
             direction={{ xs: "column", sm: "row" }}
             spacing={1.5}
-            alignItems={{ xs: "flex-start", sm: "center" }}
+            sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
           >
             <Dns color={emptyState.tone} />
             <Box sx={{ flex: 1 }}>
@@ -160,7 +160,11 @@ export function HostsScreen() {
         <Stack spacing={1}>
           {hosts.map((host) => (
             <Paper key={host.id} sx={{ p: 1.8 }}>
-              <Stack direction="row" alignItems="center" spacing={1.5}>
+              <Stack
+                direction="row"
+                spacing={1.5}
+                sx={{ alignItems: "center" }}
+              >
                 <Box
                   sx={{
                     width: 38,
@@ -231,7 +235,7 @@ export function HostsScreen() {
                     disabled={localEngineMode || removeHost.isPending}
                     aria-label={`Remove ${host.displayName}`}
                   >
-                    <DeleteOutline fontSize="small" />
+                    <DeleteOutlined fontSize="small" />
                   </IconButton>
                 </Tooltip>
               </Stack>

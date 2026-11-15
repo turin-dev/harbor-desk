@@ -138,7 +138,11 @@ export function AssistantScreen() {
           )}
           {analyzed && analysis.isFetching && !analysis.data && (
             <Paper sx={{ p: 3 }}>
-              <Stack direction="row" spacing={1.5} alignItems="center">
+              <Stack
+                direction="row"
+                spacing={1.5}
+                sx={{ alignItems: "center" }}
+              >
                 <CircularProgress size={20} />
                 <Typography color="text.secondary">
                   Analyzing {host.displayName}…
@@ -168,7 +172,7 @@ export function AssistantScreen() {
                         key={insight.id}
                         direction="row"
                         spacing={1.25}
-                        alignItems="flex-start"
+                        sx={{ alignItems: "flex-start" }}
                       >
                         <Chip
                           size="small"
