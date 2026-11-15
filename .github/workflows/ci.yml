@@ -94,6 +94,34 @@ jobs:
           else
             echo "SMOKE_ENDPOINT=npipe:////./pipe/docker_engine" >> "$GITHUB_ENV"
           fi
+      # windows-latest (image windows-2025) sometimes reaches this job with
+      # the Docker service stopped, so \\.\pipe\docker_engine never appears.
+      # The engine smoke already waits five minutes, and that wait cannot
+      # create the pipe. Start the service first. A runner that has no
+      # docker service still fails here, with the service state in the log.
+      - name: Start Docker Engine on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $service = Get-Service -Name 'docker' -ErrorAction SilentlyContinue
+          if (-not $service) {
+            Write-Error 'The docker service is not installed on this runner.'
+            exit 1
+          }
+          if ($service.Status -ne 'Running') {
+            Start-Service -Name 'docker'
+          }
+          $deadline = (Get-Date).AddMinutes(3)
+          while (-not (Test-Path '\\.\pipe\docker_engine') -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
+          if (-not (Test-Path '\\.\pipe\docker_engine')) {
+            Get-Service -Name 'docker' | Format-List *
+            docker version
+            Write-Error 'Named pipe \\.\pipe\docker_engine did not appear after starting the docker service.'
+            exit 1
+          }
+          docker version
       - name: Run Engine smoke
         run: pnpm run smoke:engine
       - name: Run full-stack gateway smoke
