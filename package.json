@@ -60,10 +60,10 @@
     "check:openapi": "node scripts/check-openapi-routes.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.6",
     "concurrently": "^9.2.1",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.2",
+    "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   }
 }

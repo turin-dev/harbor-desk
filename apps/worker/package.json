@@ -17,6 +17,7 @@
     "bullmq": "^5.58.5"
   },
   "devDependencies": {
+    "@types/node": "^26.6.6",
     "tsx": "^4.20.3"
   }
 }
