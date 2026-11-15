@@ -10,5 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --test dist/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
   }
 }
