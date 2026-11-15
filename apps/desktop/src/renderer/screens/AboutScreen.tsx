@@ -67,7 +67,7 @@ export function AboutScreen() {
       />
       <Stack spacing={2}>
         <Paper sx={{ p: 3 }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
             <Box
               sx={{
                 width: 52,
@@ -112,7 +112,11 @@ export function AboutScreen() {
         </Paper>
 
         <Paper sx={{ p: 2.2 }}>
-          <Stack direction="row" spacing={1.1} alignItems="flex-start">
+          <Stack
+            direction="row"
+            spacing={1.1}
+            sx={{ alignItems: "flex-start" }}
+          >
             <Security color="primary" />
             <Box>
               <Typography sx={{ fontWeight: 700 }}>

@@ -10,10 +10,12 @@ export function PageHeader(props: {
   return (
     <Stack
       direction="row"
-      alignItems="flex-start"
-      justifyContent="space-between"
       spacing={2}
-      sx={{ mb: 2.5 }}
+      sx={{
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        mb: 2.5,
+      }}
     >
       <Box>
         {props.eyebrow && (
@@ -38,7 +40,7 @@ export function PageHeader(props: {
         )}
       </Box>
       {props.actions && (
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           {props.actions}
         </Stack>
       )}

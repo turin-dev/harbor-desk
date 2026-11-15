@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import {
-  CheckCircleOutline,
+  CheckCircleOutlined,
   CloudQueue,
-  ErrorOutline,
+  ErrorOutlined,
   Refresh,
   Router,
   Security,
@@ -210,14 +210,13 @@ export function TroubleshootScreen() {
             <>
               <Stack
                 direction="row"
-                alignItems="center"
                 spacing={1}
-                sx={{ mb: 1.5 }}
+                sx={{ alignItems: "center", mb: 1.5 }}
               >
                 {health.data?.status === "ok" ? (
-                  <CheckCircleOutline color="success" fontSize="small" />
+                  <CheckCircleOutlined color="success" fontSize="small" />
                 ) : (
-                  <ErrorOutline color="warning" fontSize="small" />
+                  <ErrorOutlined color="warning" fontSize="small" />
                 )}
                 <Typography sx={{ fontWeight: 650 }}>
                   {health.isError
@@ -258,9 +257,8 @@ export function TroubleshootScreen() {
             <>
               <Stack
                 direction="row"
-                alignItems="center"
                 spacing={1}
-                sx={{ mb: 1.6 }}
+                sx={{ alignItems: "center", mb: 1.6 }}
               >
                 <Typography sx={{ fontWeight: 650 }}>
                   {selectedHost.displayName}
@@ -302,7 +300,11 @@ export function TroubleshootScreen() {
               <Typography sx={{ fontWeight: 650, fontSize: 12, mb: 1 }}>
                 Capability matrix
               </Typography>
-              <Stack direction="row" useFlexGap flexWrap="wrap" gap={0.8}>
+              <Stack
+                direction="row"
+                useFlexGap
+                sx={{ flexWrap: "wrap", gap: 0.8 }}
+              >
                 {capabilityLabels.map(([key, label]) => (
                   <Capability
                     key={key}
@@ -347,7 +349,11 @@ function SectionHeading({
   description: string;
 }) {
   return (
-    <Stack direction="row" spacing={1.1} alignItems="flex-start" sx={{ mb: 2 }}>
+    <Stack
+      direction="row"
+      spacing={1.1}
+      sx={{ alignItems: "flex-start", mb: 2 }}
+    >
       <Box
         sx={{
           color: "primary.main",
@@ -378,15 +384,15 @@ function DiagnosticRow({
   good: boolean;
 }) {
   return (
-    <Stack direction="row" justifyContent="space-between" spacing={2}>
+    <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between" }}>
       <Typography color="text.secondary" sx={{ textTransform: "capitalize" }}>
         {label}
       </Typography>
-      <Stack direction="row" spacing={0.7} alignItems="center">
+      <Stack direction="row" spacing={0.7} sx={{ alignItems: "center" }}>
         {good ? (
-          <CheckCircleOutline color="success" sx={{ fontSize: 15 }} />
+          <CheckCircleOutlined color="success" sx={{ fontSize: 15 }} />
         ) : (
-          <ErrorOutline color="warning" sx={{ fontSize: 15 }} />
+          <ErrorOutlined color="warning" sx={{ fontSize: 15 }} />
         )}
         <Typography sx={{ fontFamily: "var(--dd-font-mono)", fontSize: 11 }}>
           {value}
@@ -414,8 +420,8 @@ function Capability({ label, enabled }: { label: string; enabled: boolean }) {
     <Stack
       direction="row"
       spacing={0.55}
-      alignItems="center"
       sx={{
+        alignItems: "center",
         px: 0.9,
         py: 0.55,
         border: 1,
@@ -425,9 +431,9 @@ function Capability({ label, enabled }: { label: string; enabled: boolean }) {
       }}
     >
       {enabled ? (
-        <CheckCircleOutline color="success" sx={{ fontSize: 14 }} />
+        <CheckCircleOutlined color="success" sx={{ fontSize: 14 }} />
       ) : (
-        <ErrorOutline color="disabled" sx={{ fontSize: 14 }} />
+        <ErrorOutlined color="disabled" sx={{ fontSize: 14 }} />
       )}
       <Typography
         sx={{
@@ -452,7 +458,7 @@ function DiagnosticNote({
 }) {
   return (
     <Paper sx={{ p: 2, flex: 1 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <Box
           sx={{ color: "primary.main", display: "grid", placeItems: "center" }}
         >
@@ -469,7 +475,7 @@ function DiagnosticNote({
 
 function CheckLoading() {
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
       <CircularProgress size={17} />
       <Typography color="text.secondary">Running checks…</Typography>
     </Stack>

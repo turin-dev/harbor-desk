@@ -77,7 +77,7 @@ export function AuditScreen() {
         !query.isError &&
         (query.isLoading ? (
           <Paper sx={{ overflow: "hidden" }}>
-            <Stack alignItems="center" sx={{ py: 8 }}>
+            <Stack sx={{ alignItems: "center", py: 8 }}>
               <Typography color="text.secondary">
                 Reading gateway audit log…
               </Typography>

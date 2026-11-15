@@ -68,9 +68,12 @@ export function NotificationCenter() {
       >
         <Stack
           direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ px: 1.75, py: 1.2 }}
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between",
+            px: 1.75,
+            py: 1.2,
+          }}
         >
           <Box>
             <Typography sx={{ fontWeight: 700, fontSize: 13 }}>
@@ -101,8 +104,10 @@ export function NotificationCenter() {
                 <ListItemText
                   primary={eventTitle(event.type)}
                   secondary={`${event.resourceKind}${event.resourceId ? ` · ${event.resourceId.slice(0, 18)}` : ""} · ${eventTime(event.occurredAt)}`}
-                  primaryTypographyProps={{ fontSize: 12.5, fontWeight: 620 }}
-                  secondaryTypographyProps={{ fontSize: 10.5, noWrap: true }}
+                  slotProps={{
+                    primary: { sx: { fontSize: 12.5, fontWeight: 620 } },
+                    secondary: { noWrap: true, sx: { fontSize: 10.5 } },
+                  }}
                 />
               </ListItem>
             ))}

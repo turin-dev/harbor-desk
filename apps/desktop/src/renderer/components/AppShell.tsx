@@ -9,7 +9,7 @@ import {
   Dashboard,
   DeveloperBoard,
   Extension,
-  HelpOutline,
+  HelpOutlined,
   History,
   Hub,
   Image,
@@ -148,10 +148,14 @@ function NavigationList({
         <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
         <ListItemText
           primary={item.label}
-          primaryTypographyProps={{
-            fontSize: 14,
-            lineHeight: "20px",
-            fontWeight: selected ? 500 : 400,
+          slotProps={{
+            primary: {
+              sx: {
+                fontSize: 14,
+                lineHeight: "20px",
+                fontWeight: selected ? 500 : 400,
+              },
+            },
           }}
         />
       </ListItemButton>
@@ -494,9 +498,13 @@ export function AppShell() {
         >
           <Stack
             direction="row"
-            alignItems="center"
             spacing={1}
-            sx={{ width: drawerWidth, minWidth: drawerWidth, px: 3 }}
+            sx={{
+              alignItems: "center",
+              width: drawerWidth,
+              minWidth: drawerWidth,
+              px: 3,
+            }}
           >
             <Box
               sx={{
@@ -542,13 +550,12 @@ export function AppShell() {
           <Box sx={{ flex: 1 }} />
           <Stack
             direction="row"
-            alignItems="center"
             spacing={0.25}
-            sx={{ pr: 0.5, WebkitAppRegion: "no-drag" }}
+            sx={{ alignItems: "center", pr: 0.5, WebkitAppRegion: "no-drag" }}
           >
             <Tooltip title="Help">
               <IconButton aria-label="Help" sx={{ color: "inherit" }}>
-                <HelpOutline fontSize="small" />
+                <HelpOutlined fontSize="small" />
               </IconButton>
             </Tooltip>
             <Box
@@ -614,7 +621,11 @@ export function AppShell() {
               transformOrigin={{ vertical: "top", horizontal: "right" }}
             >
               <Box sx={{ px: 2, py: 1.25, minWidth: 220 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: "center" }}
+                >
                   <Avatar
                     sx={{
                       width: 28,

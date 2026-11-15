@@ -134,31 +134,6 @@ export function QuickSearch({
           placeholder={inTopbar ? "Search" : "Search remote resources…"}
           aria-label="Quick search"
           fullWidth
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search sx={{ color: "text.secondary", fontSize: 19 }} />
-              </InputAdornment>
-            ),
-            endAdornment: (
-              <Typography
-                component="kbd"
-                sx={{
-                  display: { xs: "none", sm: "inline" },
-                  color: "text.secondary",
-                  fontSize: 10,
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 0.6,
-                  px: 0.55,
-                  py: 0.15,
-                  lineHeight: 1.2,
-                }}
-              >
-                Ctrl K
-              </Typography>
-            ),
-          }}
           sx={
             inTopbar
               ? {
@@ -191,6 +166,33 @@ export function QuickSearch({
                   "& .MuiOutlinedInput-root": { bgcolor: "background.default" },
                 }
           }
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search sx={{ color: "text.secondary", fontSize: 19 }} />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <Typography
+                  component="kbd"
+                  sx={{
+                    display: { xs: "none", sm: "inline" },
+                    color: "text.secondary",
+                    fontSize: 10,
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 0.6,
+                    px: 0.55,
+                    py: 0.15,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Ctrl K
+                </Typography>
+              ),
+            },
+          }}
         />
         {open && (
           <Paper
@@ -240,12 +242,13 @@ export function QuickSearch({
                     <ListItemText
                       primary={result.label}
                       secondary={result.secondary}
-                      primaryTypographyProps={{
-                        noWrap: true,
-                        fontSize: 12.5,
-                        fontWeight: 620,
+                      slotProps={{
+                        primary: {
+                          noWrap: true,
+                          sx: { fontSize: 12.5, fontWeight: 620 },
+                        },
+                        secondary: { noWrap: true, sx: { fontSize: 11 } },
                       }}
-                      secondaryTypographyProps={{ noWrap: true, fontSize: 11 }}
                     />
                     <Typography
                       sx={{

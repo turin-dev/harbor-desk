@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Box, Chip, Paper, Stack, Typography } from "@mui/material";
 import {
-  CheckCircleOutline,
+  CheckCircleOutlined,
   Construction,
   Lock,
   RadioButtonUnchecked,
@@ -35,7 +35,7 @@ export function SurfaceScreen(props: {
         description={props.description}
       />
       <Paper sx={{ p: 2.5, mb: 2 }}>
-        <Stack direction="row" spacing={1.5} alignItems="flex-start">
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
           <Box
             sx={{
               width: 40,
@@ -50,7 +50,7 @@ export function SurfaceScreen(props: {
             {props.icon ?? <Construction />}
           </Box>
           <Box sx={{ flex: 1 }}>
-            <Stack direction="row" alignItems="center" spacing={1}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <Typography variant="h6">Adapter status</Typography>
               <Chip
                 size="small"
@@ -68,7 +68,7 @@ export function SurfaceScreen(props: {
           </Box>
         </Stack>
       </Paper>
-      <Stack direction="row" spacing={1.4} alignItems="stretch">
+      <Stack direction="row" spacing={1.4} sx={{ alignItems: "stretch" }}>
         <CapabilityRow label="Client route and layout" done />
         <CapabilityRow
           label={props.capability ? "Host capability" : "Server-side adapter"}
@@ -88,9 +88,9 @@ export function SurfaceScreen(props: {
 function CapabilityRow({ label, done }: { label: string; done: boolean }) {
   return (
     <Paper sx={{ p: 1.6, flex: 1 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         {done ? (
-          <CheckCircleOutline color="success" fontSize="small" />
+          <CheckCircleOutlined color="success" fontSize="small" />
         ) : (
           <RadioButtonUnchecked color="disabled" fontSize="small" />
         )}
@@ -101,8 +101,11 @@ function CapabilityRow({ label, done }: { label: string; done: boolean }) {
       <Stack
         direction="row"
         spacing={0.5}
-        alignItems="center"
-        sx={{ mt: 1, color: done ? "success.main" : "text.secondary" }}
+        sx={{
+          alignItems: "center",
+          mt: 1,
+          color: done ? "success.main" : "text.secondary",
+        }}
       >
         {done ? (
           <Typography sx={{ fontSize: 11 }}>Available</Typography>

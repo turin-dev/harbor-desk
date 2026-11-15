@@ -5,7 +5,7 @@ import {
   CloudDownload,
   Close,
   ContentCopy,
-  DeleteOutline,
+  DeleteOutlined,
   Image as ImageIcon,
   InsertDriveFile,
   Folder,
@@ -329,7 +329,7 @@ function ImagesView({ hostId }: { hostId?: string }) {
                           disabled={!hostOnline || remove.isPending}
                           aria-label={`Remove image ${row.repository}:${row.tag}`}
                         >
-                          <DeleteOutline fontSize="small" />
+                          <DeleteOutlined fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     </TableCell>
@@ -788,7 +788,7 @@ function VolumesView({ hostId }: { hostId?: string }) {
                             }}
                             aria-label={`Delete volume ${row.name}`}
                           >
-                            <DeleteOutline fontSize="small" />
+                            <DeleteOutlined fontSize="small" />
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -1176,7 +1176,7 @@ function NetworksView({ hostId }: { hostId?: string }) {
                         }}
                         aria-label={`Delete network ${row.name}`}
                       >
-                        <DeleteOutline fontSize="small" />
+                        <DeleteOutlined fontSize="small" />
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -1228,9 +1228,11 @@ function NetworksView({ hostId }: { hostId?: string }) {
                     <Stack
                       key={containerId}
                       direction="row"
-                      justifyContent="space-between"
-                      alignItems="center"
                       spacing={1}
+                      sx={{
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
                     >
                       <Typography
                         variant="body2"
@@ -1513,19 +1515,21 @@ function ResourceFilter({
   count: number;
 }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.6 }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.6 }}>
       <TextField
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
         sx={{ maxWidth: 430, flex: 1 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <Search fontSize="small" />
-            </InputAdornment>
-          ),
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search fontSize="small" />
+              </InputAdornment>
+            ),
+          },
         }}
       />
       <Typography color="text.secondary" sx={{ fontSize: 11 }}>
@@ -1545,9 +1549,8 @@ function CopyCell({
   return (
     <Stack
       direction="row"
-      alignItems="center"
       spacing={0.25}
-      sx={{ minWidth: 0 }}
+      sx={{ alignItems: "center", minWidth: 0 }}
     >
       <Typography
         sx={{ fontFamily: "var(--dd-font-mono)", fontSize: 11 }}
@@ -1605,12 +1608,11 @@ function VolumeBrowsePanel({
         mb: 1.5,
       }}
     >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1 }}>
         <Stack
           direction="row"
           spacing={0.5}
-          alignItems="center"
-          sx={{ flex: 1, minWidth: 0 }}
+          sx={{ alignItems: "center", flex: 1, minWidth: 0 }}
         >
           <Button
             size="small"
@@ -1625,8 +1627,8 @@ function VolumeBrowsePanel({
             <Stack
               direction="row"
               spacing={0.5}
-              alignItems="center"
               key={segment}
+              sx={{ alignItems: "center" }}
             >
               <Typography color="text.disabled">/</Typography>
               <Button
@@ -1691,7 +1693,11 @@ function VolumeBrowsePanel({
                   }
                 >
                   <TableCell>
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: "center" }}
+                    >
                       {entry.kind === "directory" ? (
                         <Folder
                           sx={{ fontSize: 16, color: "text.secondary" }}
@@ -1756,22 +1762,22 @@ function ResourceDetailDrawer({
       anchor="right"
       open={open}
       onClose={onClose}
-      PaperProps={{
-        sx: { width: { xs: "100%", sm: 500 }, p: 2.5 },
+      slotProps={{
+        paper: {
+          sx: { width: { xs: "100%", sm: 500 }, p: 2.5 },
+        },
       }}
     >
       <Stack spacing={1.5} sx={{ height: "100%" }}>
         <Stack
           direction="row"
-          justifyContent="space-between"
-          alignItems="flex-start"
           spacing={2}
+          sx={{ alignItems: "flex-start", justifyContent: "space-between" }}
         >
           <Stack
             direction="row"
             spacing={1.2}
-            alignItems="center"
-            sx={{ minWidth: 0 }}
+            sx={{ alignItems: "center", minWidth: 0 }}
           >
             <Box
               sx={{
@@ -1850,7 +1856,7 @@ function JsonView({
   const serialized = JSON.stringify(data, null, 2);
   return (
     <Box>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+      <Stack direction="row" sx={{ justifyContent: "flex-end", mb: 1 }}>
         <Button
           size="small"
           startIcon={<ContentCopy fontSize="small" />}

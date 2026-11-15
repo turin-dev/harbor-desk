@@ -140,14 +140,16 @@ export function DashboardScreen() {
           <Stack
             direction={{ xs: "column", lg: "row" }}
             spacing={2}
-            alignItems="stretch"
+            sx={{ alignItems: "stretch" }}
           >
             <Paper sx={{ p: 2.2, flex: 1, minWidth: 0 }}>
               <Stack
                 direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                sx={{ mb: 1.6 }}
+                sx={{
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1.6,
+                }}
               >
                 <Box>
                   <Typography variant="h6">Remote host</Typography>
@@ -216,9 +218,12 @@ export function DashboardScreen() {
           <Paper sx={{ mt: 2, overflow: "hidden" }}>
             <Stack
               direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ px: 2.2, py: 1.7 }}
+              sx={{
+                alignItems: "center",
+                justifyContent: "space-between",
+                px: 2.2,
+                py: 1.7,
+              }}
             >
               <Box>
                 <Typography variant="h6">Containers at a glance</Typography>
@@ -322,7 +327,7 @@ export function DashboardScreen() {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <Stack direction="row" justifyContent="space-between" spacing={2}>
+    <Stack direction="row" spacing={2} sx={{ justifyContent: "space-between" }}>
       <Typography color="text.secondary" sx={{ flexShrink: 0 }}>
         {label}
       </Typography>

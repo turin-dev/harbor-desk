@@ -110,7 +110,11 @@ export function ExtensionsScreen() {
                 <TableRow key={extension.id} hover>
                   <TableCell>
                     <Stack spacing={0.4}>
-                      <Stack direction="row" spacing={0.75} alignItems="center">
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        sx={{ alignItems: "center" }}
+                      >
                         <Typography sx={{ fontWeight: 620 }}>
                           {extension.name}
                         </Typography>
@@ -154,7 +158,7 @@ export function ExtensionsScreen() {
                     <Stack
                       direction="row"
                       spacing={0.5}
-                      justifyContent="flex-end"
+                      sx={{ justifyContent: "flex-end" }}
                     >
                       <Button
                         size="small"

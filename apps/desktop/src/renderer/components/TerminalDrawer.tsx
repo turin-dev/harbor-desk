@@ -175,9 +175,9 @@ export function TerminalDrawer({ host }: { host?: Host }) {
       />
       <Stack
         direction="row"
-        alignItems="center"
-        justifyContent="space-between"
         sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
           height: 42,
           px: 2,
           borderBottom: "1px solid var(--dd-terminal-border)",
@@ -186,9 +186,8 @@ export function TerminalDrawer({ host }: { host?: Host }) {
       >
         <Stack
           direction="row"
-          alignItems="center"
           spacing={1}
-          sx={{ minWidth: 0 }}
+          sx={{ alignItems: "center", minWidth: 0 }}
         >
           <Terminal sx={{ fontSize: 17, color: "primary.main" }} />
           <Typography sx={{ fontWeight: 650, fontSize: 12.5 }}>

@@ -207,7 +207,11 @@ export function HubScreen() {
               {rows.map((row) => (
                 <TableRow key={row.repository} hover>
                   <TableCell>
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: "center" }}
+                    >
                       <Typography sx={{ fontWeight: 600 }}>
                         {row.repository}
                       </Typography>

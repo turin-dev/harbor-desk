@@ -22,8 +22,7 @@ export function MetricCard(props: {
     <Paper sx={{ p: 2, flex: 1, minWidth: 165 }}>
       <Stack
         direction="row"
-        justifyContent="space-between"
-        alignItems="flex-start"
+        sx={{ alignItems: "flex-start", justifyContent: "space-between" }}
       >
         <Box>
           <Typography

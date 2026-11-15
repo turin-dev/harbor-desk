@@ -49,7 +49,7 @@ export function LoginScreen() {
     >
       <Paper sx={{ width: "100%", maxWidth: 440, p: 3.5 }}>
         <Stack spacing={2.4}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
             <Box
               sx={{
                 width: 40,
